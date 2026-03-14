@@ -31,7 +31,7 @@ const FAQ = () => (
         className="text-center"
       >
         <h2 className="font-serif text-3xl font-bold text-foreground sm:text-4xl">
-          Preguntas <span className="text-primary">Frecuentes</span>
+          Preguntas Frecuentes
         </h2>
       </motion.div>
 
@@ -47,7 +47,7 @@ const FAQ = () => (
             <AccordionItem
               key={i}
               value={`faq-${i}`}
-              className="rounded-lg border border-border/50 bg-card px-6"
+              className="rounded-md border bg-card px-6"
             >
               <AccordionTrigger className="text-left font-sans text-sm font-medium text-foreground hover:no-underline sm:text-base">
                 {faq.q}

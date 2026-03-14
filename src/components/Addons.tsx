@@ -24,7 +24,7 @@ const addons = [
 ];
 
 const Addons = () => (
-  <section id="addons" className="bg-secondary/50 py-24">
+  <section id="addons" className="border-y bg-secondary/50 py-24">
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -33,7 +33,7 @@ const Addons = () => (
         className="text-center"
       >
         <h2 className="font-serif text-3xl font-bold text-foreground sm:text-4xl">
-          Personaliza tu <span className="text-primary">Paquete</span>
+          Personaliza tu Paquete
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
           Complementa tu experiencia con estos servicios adicionales de primera calidad.
@@ -49,14 +49,14 @@ const Addons = () => (
             viewport={{ once: true }}
             transition={{ delay: i * 0.1 }}
           >
-            <Card className="h-full border-border/50 bg-card transition-shadow hover:shadow-lg hover:shadow-primary/5">
+            <Card className="h-full border bg-background transition-shadow hover:shadow-md">
               <CardContent className="flex flex-col items-start gap-4 p-6">
-                <div className="rounded-lg bg-primary/10 p-3">
-                  <addon.icon className="h-6 w-6 text-primary" />
+                <div className="rounded-md border bg-secondary p-3">
+                  <addon.icon className="h-5 w-5 text-foreground" />
                 </div>
                 <div>
                   <h3 className="font-serif text-xl font-semibold text-foreground">{addon.title}</h3>
-                  <span className="mt-1 inline-block font-sans text-lg font-bold text-primary">{addon.price}</span>
+                  <span className="mt-1 inline-block font-sans text-lg font-bold text-foreground">{addon.price}</span>
                 </div>
                 <p className="text-sm leading-relaxed text-muted-foreground">{addon.description}</p>
               </CardContent>
