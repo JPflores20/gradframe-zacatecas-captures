@@ -4,16 +4,16 @@ const WHATSAPP_URL = "https://wa.me/524921234567?text=Hola%2C%20quiero%20más%20
 
 const Footer = () => (
   <>
-    <footer className="border-t border-border/40 bg-secondary/30 py-12">
+    <footer className="border-t bg-secondary/30 py-12">
       <div className="mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-        <span className="font-serif text-lg font-bold text-primary">GF</span>
-        <span className="ml-1 font-serif text-sm text-foreground">/ GradFrame</span>
+        <span className="font-serif text-lg font-bold text-foreground">GF</span>
+        <span className="ml-1 font-serif text-sm text-muted-foreground">/ GradFrame</span>
         <div className="mt-4 flex justify-center gap-6">
           {["Instagram", "Facebook", "TikTok"].map((name) => (
             <a
               key={name}
               href="#"
-              className="text-sm text-muted-foreground transition-colors hover:text-primary"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               {name}
             </a>
@@ -25,12 +25,11 @@ const Footer = () => (
       </div>
     </footer>
 
-    {/* Floating WhatsApp button */}
     <a
       href={WHATSAPP_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-whatsapp shadow-lg shadow-whatsapp/30 transition-transform hover:scale-110"
+      className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-whatsapp shadow-lg transition-transform hover:scale-110"
       aria-label="Chat with us on WhatsApp"
     >
       <MessageCircle className="h-6 w-6 text-whatsapp-foreground" />
