@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { MapPin, Clock } from "lucide-react";
+import { MapPin, Clock, Navigation } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const Location = () => (
   <section id="ubicacion" className="py-24">
@@ -57,7 +58,7 @@ const Location = () => (
         </div>
 
         {/* Map */}
-        <div className="overflow-hidden rounded-2xl border shadow-md lg:col-span-2">
+        <div className="relative overflow-hidden rounded-2xl border shadow-md lg:col-span-2 group">
           <iframe
             src="https://www.google.com/maps/embed?pb=!1m17!1m12!1m3!1d3679.142259316282!2d-102.571399724694!3d22.760101279358615!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m2!1m1!2zMjLCsDQ1JzM2LjQiTiAxMDLCsDM0JzA3LjgiVw!5e0!3m2!1ses!2smx!4v1773506226189!5m2!1ses!2smx"
             width="100%"
@@ -68,6 +69,20 @@ const Location = () => (
             referrerPolicy="no-referrer-when-downgrade"
             title="Ubicación del estudio GradFrame"
           />
+          
+          {/* Botón Flotante "Cómo llegar" */}
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
+            <Button asChild size="lg" className="rounded-full shadow-lg">
+              <a
+                href="https://www.google.com/maps/dir/?api=1&destination=Zacatecas,Zacatecas,Mexico"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Navigation className="mr-2 h-5 w-5" />
+                Cómo llegar
+              </a>
+            </Button>
+          </div>
         </div>
       </motion.div>
     </div>
