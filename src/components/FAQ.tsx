@@ -8,16 +8,16 @@ import { motion } from "framer-motion";
 
 const faqs = [
   {
-    q: "¿Con cuánta anticipación debo reservar?",
-    a: "Recomendamos reservar con al menos 2 semanas de anticipación para asegurar disponibilidad en la fecha y horario de tu preferencia, especialmente en temporada alta de graduaciones.",
+    q: "¿CON CUÁNTO TIEMPO DE ANTICIPACIÓN DEBEMOS RESERVAR?",
+    a: "Te recomendamos reservar con la mayor anticipación posible para asegurar disponibilidad de fechas y una mejor organización para tu grupo.\n\nSi lo necesitas, también es posible agendar hasta un mes antes, aunque en ese caso puede haber menos fechas disponibles.",
   },
   {
-    q: "¿Cuáles son las políticas de anticipo?",
-    a: "Se requiere un anticipo del 50% al momento de firmar el contrato para apartar tu fecha. El 50% restante se cubre en la primera sesión fotográfica.",
+    q: "¿CUÁNTO ES EL ANTICIPO?",
+    a: "Para confirmar tu reserva, se solicita un anticipo del 50% al momento de firmar el contrato.\n\nEl 50% restante se cubre el día de tu primera sesión fotográfica.",
   },
   {
-    q: "¿Cuántos familiares pueden asistir a la sesión?",
-    a: "Cada sesión admite entre 8 y 10 personas como máximo, incluyendo al graduado. Esto nos permite garantizar la calidad y atención personalizada en cada fotografía.",
+    q: "¿CUÁNTOS FAMILIARES PUEDO LLEVAR A LA SESIÓN FAMILIAR?",
+    a: "Cada graduado puede llevar entre 8 y 10 familiares como máximo a su sesión.\n\nEste límite nos permite garantizar una experiencia cómoda, organizada y con fotos de la mejor calidad para todos.",
   },
 ];
 
@@ -52,7 +52,7 @@ const FAQ = () => (
               <AccordionTrigger className="text-left font-sans text-sm font-medium text-foreground hover:no-underline sm:text-base">
                 {faq.q}
               </AccordionTrigger>
-              <AccordionContent className="text-sm leading-relaxed text-muted-foreground">
+              <AccordionContent className="whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
                 {faq.a}
               </AccordionContent>
             </AccordionItem>

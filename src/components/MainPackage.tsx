@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { MessageCircle, Camera, Users, Star } from "lucide-react";
 import { motion } from "framer-motion";
 
-const WHATSAPP_URL = "https://wa.me/524921234567?text=Hola%2C%20me%20interesa%20el%20paquete%20de%20tres%20sesiones";
+const WHATSAPP_URL = "https://wa.me/5215646831101?text=Hola%2C%20me%20interesa%20el%20paquete%20de%20tres%20sesiones";
 
 const MainPackage = () => (
   <section id="paquetes" className="py-24">

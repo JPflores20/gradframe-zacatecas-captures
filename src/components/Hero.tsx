@@ -4,11 +4,11 @@ import { motion } from "framer-motion";
 const Hero = () => (
   <section
     id="home"
-    className="relative flex min-h-screen items-center justify-center overflow-hidden pt-16"
+    className="relative flex flex-col items-center justify-center overflow-hidden pt-16"
   >
     <div className="absolute inset-0 bg-gradient-to-b from-background via-secondary/50 to-background" />
 
-    <div className="relative z-10 mx-auto max-w-4xl px-4 text-center">
+    <div className="relative z-10 mx-auto max-w-4xl px-4 pt-24 text-center sm:pt-32">
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -22,6 +22,11 @@ const Hero = () => (
           <span className="italic">GradFrame</span>{" "}
           Experience
         </h1>
+        <img
+          src="/GF_logo.avif"
+          alt="GradFrame Logo"
+          className="mx-auto mt-8 h-20 w-auto object-contain sm:h-24 md:h-28"
+        />
         <p className="mx-auto mt-6 max-w-2xl font-sans text-lg text-muted-foreground sm:text-xl">
           Capturando la culminación de tu esfuerzo.
         </p>
@@ -36,6 +41,22 @@ const Hero = () => (
         </div>
       </motion.div>
     </div>
+
+    {/* Hero showcase image */}
+    <motion.div
+      className="relative z-10 mx-auto mt-16 w-full max-w-5xl px-4 pb-20"
+      initial={{ opacity: 0, y: 40 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 1, delay: 0.4 }}
+    >
+      <div className="overflow-hidden rounded-2xl shadow-2xl ring-1 ring-white/10">
+        <img
+          src="/Graduados1.avif"
+          alt="Graduados celebrando"
+          className="h-auto w-full object-cover"
+        />
+      </div>
+    </motion.div>
   </section>
 );
 

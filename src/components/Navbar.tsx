@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+
 import { motion, AnimatePresence } from "framer-motion";
 
 const navLinks = [
   { label: "Home", href: "#home" },
-  { label: "Cuadros", href: "#addons" },
-  { label: "Estolas", href: "#addons" },
-  { label: "Testimonios", href: "#faq" },
+  { label: "Cuadros", href: "/cuadros", newTab: true },
+  { label: "Estolas", href: "/estolas", newTab: true },
+  { label: "Testimonios", href: "#testimonios" },
+  { label: "FAQ", href: "#faq" },
+  { label: "Ubicación", href: "#ubicacion" },
 ];
 
 const Navbar = () => {
@@ -26,12 +28,13 @@ const Navbar = () => {
             <a
               key={link.label}
               href={link.href}
+              {...(link.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
               className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               {link.label}
             </a>
           ))}
-          <Button size="sm">Login</Button>
+
         </div>
 
         <button className="text-foreground md:hidden" onClick={() => setOpen(!open)}>
@@ -52,13 +55,14 @@ const Navbar = () => {
                 <a
                   key={link.label}
                   href={link.href}
+                  {...(link.newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
                   onClick={() => setOpen(false)}
                   className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {link.label}
                 </a>
               ))}
-              <Button size="sm" className="w-fit">Login</Button>
+
             </div>
           </motion.div>
         )}
