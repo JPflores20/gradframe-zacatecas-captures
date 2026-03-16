@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { CalendarIcon } from "lucide-react";
 import { create_new_event } from "@/functions/database";
 import { generate_unique_code } from "@/functions/formatters";
@@ -35,6 +34,7 @@ export function EventCreationDialog({
   const [event_title, set_event_title] = useState("");
   const [selected_date, set_selected_date] = useState<Date>();
   const [selected_time, set_selected_time] = useState("");
+  const [event_location, set_event_location] = useState(""); // <-- Nuevo estado para la ubicación
   const [event_details, set_event_details] = useState("");
   const [is_loading, set_is_loading] = useState(false);
 
@@ -42,6 +42,7 @@ export function EventCreationDialog({
     set_event_title("");
     set_selected_date(undefined);
     set_selected_time("");
+    set_event_location(""); // <-- Limpiar el campo
     set_event_details("");
   };
 
@@ -60,6 +61,7 @@ export function EventCreationDialog({
       title: event_title,
       date: date_string,
       time: selected_time,
+      location: event_location, // <-- Pasamos el dato a la BD
       details: event_details,
       unique_code: generated_code,
       photographer_id: "admin", 
@@ -116,7 +118,7 @@ export function EventCreationDialog({
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="title" className="text-right">Título</Label>
+            <Label htmlFor="title" className="text-right">Título *</Label>
             <Input
               id="title"
               value={event_title}
@@ -126,7 +128,7 @@ export function EventCreationDialog({
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="date" className="text-right">Fecha</Label>
+            <Label htmlFor="date" className="text-right">Fecha *</Label>
             <div className="col-span-3">
               <Popover>
                 <PopoverTrigger asChild>
@@ -147,7 +149,7 @@ export function EventCreationDialog({
             </div>
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
-            <Label htmlFor="time" className="text-right">Hora</Label>
+            <Label htmlFor="time" className="text-right">Hora *</Label>
             <Input
               id="time"
               type="time"
@@ -156,6 +158,19 @@ export function EventCreationDialog({
               className="col-span-3"
             />
           </div>
+          
+          {/* Aquí agregamos el nuevo campo de ubicación */}
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="location" className="text-right">Ubicación</Label>
+            <Input
+              id="location"
+              value={event_location}
+              onChange={(event) => set_event_location(event.target.value)}
+              className="col-span-3"
+              placeholder="e.g., Centro Platero, Estudio, etc."
+            />
+          </div>
+
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="details" className="text-right">Detalles</Label>
             <Textarea

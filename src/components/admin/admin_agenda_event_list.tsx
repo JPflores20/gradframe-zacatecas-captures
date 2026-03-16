@@ -1,10 +1,13 @@
+import { useState } from "react";
 import { format, parseISO } from "date-fns";
-import { es } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, Copy, CalendarDays } from "lucide-react";
+import { Clock, MapPin, Copy, CalendarDays, Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { GradframeEvent } from "@/types/gradframe_event";
+import { fetch_registrations_by_event } from "@/functions/database";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 interface EventListProps {
   is_loading: boolean;
@@ -12,11 +15,105 @@ interface EventListProps {
 }
 
 export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListProps) => {
+  const [downloading_event_id, set_downloading_event_id] = useState<string | null>(null);
+
   const copy_to_clipboard = (code_string: string) => {
     navigator.clipboard.writeText(code_string);
     toast.success("Código copiado al portapapeles", {
       description: code_string,
     });
+  };
+
+  const download_event_pdf = async (event: GradframeEvent) => {
+    if (!event.id) return;
+    
+    set_downloading_event_id(event.id);
+    toast.info("Generando PDF...");
+
+    try {
+      const registrations = await fetch_registrations_by_event(event.id);
+
+      if (registrations.length === 0) {
+        toast.warning("No hay registros para este evento aún.");
+        set_downloading_event_id(null);
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'landscape' });
+      
+      doc.setFontSize(18);
+      doc.text(`Reporte de Registros: ${event.title}`, 14, 22);
+      
+      doc.setFontSize(11);
+      doc.setTextColor(100);
+      const event_date = format(parseISO(event.date), "dd/MM/yyyy");
+      doc.text(`Fecha: ${event_date} | Hora: ${event.time} | Código: ${event.unique_code}`, 14, 30);
+      doc.text(`Total de registrados: ${registrations.length}`, 14, 38);
+
+      const format_currency = (amount: number) => 
+        amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+      const tableColumn = [
+        "Nombre", "Teléfono", "Estatura", "Paquete", "Cuadro", 
+        "Toga/Birrete", "Estola", "Costo Total", "Anticipo (50%)"
+      ];
+      
+      const tableRows = registrations.map(reg => {
+        let total = 0;
+        
+        // 1. Sumar precio del paquete base
+        if (reg.photo_package === "Sesión completa") total += 1700;
+        else if (reg.photo_package === "Sesión temática") total += 1200;
+        else if (reg.photo_package === "Sesión de gala") total += 1200;
+        else if (reg.photo_package === "Sesión familiar") total += 1500;
+
+        // 2. Sumar adicionales
+        if (reg.stole_and_cap) total += 150;
+        if (reg.custom_stole) total += 450;
+        
+        // 3. Sumar el estilo de cuadro exacto
+        if (reg.frame_style === "CUADRO GRANDE F1") total += 2200;
+        else if (reg.frame_style === "CUADRO PEQUEÑO F2") total += 1400;
+        else if (reg.frame_style === "CUADRO GRANDE MDF") total += 1700;
+        else if (reg.frame_style === "CUADRO PEQUEÑO MDF") total += 1100;
+        else if (reg.frame_style === "CUADRO GRANDE MINIMALISTA") total += 1200;
+        else if (reg.frame_style === "CUADRO PEQUEÑO MINIMALISTA") total += 900;
+
+        // Calcular anticipo
+        const anticipo = total / 2;
+
+        return [
+          reg.name,
+          reg.phone_number,
+          reg.height,
+          reg.photo_package,
+          reg.frame_style,
+          reg.stole_and_cap ? "Sí" : "No",
+          reg.custom_stole || "No",
+          format_currency(total),
+          format_currency(anticipo)
+        ];
+      });
+
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 45,
+        theme: 'grid',
+        headStyles: { fillColor: [41, 128, 185] }, 
+        styles: { fontSize: 8, cellPadding: 3 },
+      });
+
+      const file_name = `Registros_${event.unique_code}_${event_date.replace(/\//g, '-')}.pdf`;
+      doc.save(file_name);
+      toast.success("PDF descargado correctamente");
+
+    } catch (error) {
+      console.error("Error generating PDF:", error);
+      toast.error("Hubo un error al generar el PDF");
+    } finally {
+      set_downloading_event_id(null);
+    }
   };
 
   if (is_loading) {
@@ -40,9 +137,9 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
       {selected_events.map((event_item) => (
         <div 
           key={event_item.id}
-          className="flex flex-col md:flex-row justify-between items-start md:items-center p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+          className="flex flex-col lg:flex-row justify-between items-start lg:items-center p-4 border rounded-lg hover:bg-accent/50 transition-colors"
         >
-          <div className="space-y-2 mb-4 md:mb-0">
+          <div className="space-y-2 mb-4 lg:mb-0">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-lg">{event_item.title}</h3>
               <Badge variant="secondary" className="font-mono cursor-pointer" onClick={() => copy_to_clipboard(event_item.unique_code)}>
@@ -68,9 +165,23 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
             </div>
           </div>
           
-          <div className="flex flex-col gap-2 w-full md:w-auto">
+          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
             <Button variant="outline" size="sm" onClick={() => copy_to_clipboard(event_item.unique_code)}>
               Copiar Código
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => download_event_pdf(event_item)}
+              disabled={downloading_event_id === event_item.id}
+            >
+              {downloading_event_id === event_item.id ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4 mr-2" />
+              )}
+              Descargar PDF
             </Button>
           </div>
         </div>

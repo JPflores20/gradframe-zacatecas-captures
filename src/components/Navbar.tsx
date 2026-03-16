@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Calculator } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { check_is_admin_authenticated } from "@/functions/auth";
+import { Dialog, DialogContent, DialogTrigger, DialogTitle } from "@/components/ui/dialog";
+import { PackageCalculator } from "@/components/package_calculator";
 
 const public_nav_links = [
   { label: "Home", href: "/" },
@@ -33,7 +35,8 @@ const Navbar = () => {
           <span className="hidden font-serif text-lg font-medium text-muted-foreground sm:inline">/&nbsp;GradFrame</span>
         </a>
 
-        <div className="hidden items-center gap-8 md:flex">
+        {/* --- Menú de Escritorio --- */}
+        <div className="hidden items-center gap-8 lg:flex">
           {nav_links.map((link) => (
             <a
               key={link.label}
@@ -48,20 +51,35 @@ const Navbar = () => {
               {link.label}
             </a>
           ))}
+
+          {/* Botón del Cotizador flotante (Escritorio) */}
+          <Dialog>
+            <DialogTrigger asChild>
+              <button className="flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/20">
+                <Calculator className="h-4 w-4" />
+                Cotizador
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[600px] p-0 border-none bg-transparent shadow-none">
+              <DialogTitle className="sr-only">Cotizador de Paquetes</DialogTitle>
+              <PackageCalculator />
+            </DialogContent>
+          </Dialog>
         </div>
 
-        <button className="text-foreground md:hidden" onClick={() => setOpen(!open)}>
+        <button className="text-foreground lg:hidden" onClick={() => setOpen(!open)}>
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
+      {/* --- Menú Móvil --- */}
       <AnimatePresence>
         {open && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-t bg-background md:hidden"
+            className="overflow-hidden border-t bg-background lg:hidden"
           >
             <div className="flex flex-col gap-4 px-6 py-4">
               {nav_links.map((link) => (
@@ -79,6 +97,22 @@ const Navbar = () => {
                   {link.label}
                 </a>
               ))}
+
+              {/* Botón del Cotizador flotante (Móvil) */}
+              <Dialog>
+                <DialogTrigger asChild>
+                  <button className="flex items-center gap-2 rounded-md bg-primary/10 px-4 py-3 mt-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/20 text-left">
+                    <Calculator className="h-5 w-5" />
+                    Cotizador de Paquetes
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[600px] p-0 border-none bg-transparent shadow-none w-[95vw]">
+                  <DialogTitle className="sr-only">Cotizador de Paquetes</DialogTitle>
+                  <div className="max-h-[85vh] overflow-y-auto overflow-x-hidden rounded-xl">
+                    <PackageCalculator />
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
           </motion.div>
         )}

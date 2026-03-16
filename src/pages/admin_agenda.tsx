@@ -83,14 +83,15 @@ const AdminAgenda = () => {
                   onSelect={set_selected_date}
                   className="rounded-md border mx-auto"
                   modifiers={{ booked: all_booked_dates }}
-                  modifiersStyles={{
-                    booked: { fontWeight: 'bold', textDecoration: 'underline' }
+                  // Reemplazamos modifiersStyles por modifiersClassNames y usamos Tailwind
+                  modifiersClassNames={{
+                    booked: "relative font-bold after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:h-1.5 after:w-1.5 after:rounded-full after:bg-red-500"
                   }}
                   locale={es}
                 />
                 <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                  <div className="w-3 h-3 rounded-full bg-primary" />
-                  <span>Día seleccionado</span>
+                  <div className="w-3 h-3 rounded-full bg-red-500" />
+                  <span>Día con evento</span>
                 </div>
               </CardContent>
             </Card>

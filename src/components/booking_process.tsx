@@ -12,7 +12,7 @@ const steps = [
     icon: CalendarDays,
     step: "02",
     title: "Selecciona Fecha y Hora",
-    description: "Escoge el día y horario que mejor se acomode a tu agenda.",
+    description: "Escoge el día y horario que mejor se acomode a tu agenda. Puedes consultar nuestros dias disponibles en la seccion de Agenda pública",
   },
   {
     icon: MessageCircle,

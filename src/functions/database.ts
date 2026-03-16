@@ -12,6 +12,7 @@ export const create_new_event = async (event_data: Omit<GradframeEvent, "id" | "
       title: event_data.title,
       date: event_data.date,
       time: event_data.time,
+      location: event_data.location || "", // <-- Agregamos esto para guardar la ubicación
       details: event_data.details || "",
       unique_code: event_data.unique_code,
       photographer_id: event_data.photographer_id,
@@ -71,5 +72,25 @@ export const create_new_registration = async (registration_data: Omit<GradframeR
   } catch (error) {
     console.error("Error submitting registration:", error);
     return false;
+  }
+};
+
+export const fetch_registrations_by_event = async (event_id: string): Promise<GradframeRegistration[]> => {
+  try {
+    const collection_query = query(
+      collection(db, FIREBASE_COLLECTION_REGISTRATIONS), 
+      where("event_id", "==", event_id)
+    );
+    
+    const query_snapshot = await getDocs(collection_query);
+    
+    return query_snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    } as GradframeRegistration));
+    
+  } catch (error) {
+    console.error("Error fetching event registrations:", error);
+    return [];
   }
 };
