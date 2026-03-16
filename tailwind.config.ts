@@ -14,8 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        serif: ["Playfair Display", "serif"],
-        sans: ["Inter", "sans-serif"],
+        // Asignamos Roboto a ambas variables para que reemplace todo en el diseño
+        serif: ["Roboto", "sans-serif"],
+        sans: ["Roboto", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",

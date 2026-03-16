@@ -1,13 +1,13 @@
-import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import MainPackage from "@/components/MainPackage";
-import Addons from "@/components/Addons";
-import SpecialServices from "@/components/SpecialServices";
-import BookingProcess from "@/components/BookingProcess";
-import Testimonios from "@/components/Testimonios";
-import FAQ from "@/components/FAQ";
-import Location from "@/components/Location";
-import Footer from "@/components/Footer";
+import Navbar from '@/components/navbar';
+import Hero from '@/components/hero';
+import MainPackage from '@/components/main_package';
+import Addons from '@/components/addons';
+import SpecialServices from '@/components/special_services';
+import BookingProcess from '@/components/booking_process';
+import Testimonios from '@/components/testimonios';
+import FAQ from '@/components/f_a_q';
+import Location from '@/components/location';
+import Footer from '@/components/footer';
 
 const Index = () => (
   <>

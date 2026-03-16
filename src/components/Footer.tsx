@@ -1,6 +1,7 @@
 import { MessageCircle } from "lucide-react";
 
-const WHATSAPP_URL = "https://wa.me/5215646831101?text=Hola%2C%20quiero%20más%20información";
+// Mensaje: "Hola, quisiera recibir más información sobre sus paquetes"
+const WHATSAPP_URL = "https://wa.me/5215646831101?text=Hola%2C%20quisiera%20recibir%20m%C3%A1s%20informaci%C3%B3n%20sobre%20sus%20paquetes";
 
 const Footer = () => (
   <>

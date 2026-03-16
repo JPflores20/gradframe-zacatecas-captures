@@ -17,10 +17,10 @@ const Hero = () => (
         <span className="mb-4 inline-block border border-border px-4 py-1.5 font-sans text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Zacatecas, México
         </span>
-        <h1 className="mt-6 font-serif text-4xl font-bold leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl">
-          Welcome to the{" "}
-          <span className="italic">GradFrame</span>{" "}
-          Experience
+        <h1 className="mt-6 font-serif text-4xl font-light leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl">
+          WELCOME TO THE{" "}
+          <span className="italic font-normal">GRADFRAME</span>{" "}
+          EXPERIENCE
         </h1>
         <img
           src="/GF_logo.avif"
