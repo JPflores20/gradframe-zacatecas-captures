@@ -16,6 +16,7 @@ export const create_new_event = async (event_data: Omit<GradframeEvent, "id" | "
       details: event_data.details || "",
       unique_code: event_data.unique_code,
       photographer_id: event_data.photographer_id,
+      deadline: event_data.deadline || "",
       created_at: Timestamp.now(),
     });
     

@@ -3,9 +3,10 @@ export interface GradframeEvent {
   title: string;
   date: string;
   time: string;
-  location?: string; // <-- Agregamos esta línea
-  unique_code: string;
-  created_at: number;
-  photographer_id: string;
+  location?: string;
   details?: string;
+  unique_code: string;
+  photographer_id: string;
+  created_at?: any;
+  deadline?: string; // <-- AÑADE ESTA LÍNEA
 }

@@ -1,17 +1,27 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Navbar from '@/components/navbar';
 import Footer from '@/components/footer';
-import { CalendarDays, ArrowLeft, DollarSign } from "lucide-react";
+import { CalendarDays, ArrowLeft, DollarSign, AlertCircle } from "lucide-react"; // Añadido AlertCircle
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { use_registration_logic } from "@/functions/use_registration_logic";
 import { PersonalInfoSection } from '@/components/registration/personal_info_section';
 import { OutfitDetailsSection } from '@/components/registration/outfit_details_section';
 import { PackageDetailsSection } from '@/components/registration/package_details_section';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
-// Diccionarios de precios para el cálculo en tiempo real
 const session_prices: Record<string, number> = {
   "Sesión completa": 1700,
   "Sesión temática": 1200,
@@ -39,6 +49,8 @@ const EventRegistrationForm = () => {
     handle_form_submit
   } = use_registration_logic();
 
+  const [show_confirm_dialog, set_show_confirm_dialog] = useState(false);
+
   if (is_loading_event) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
@@ -60,7 +72,6 @@ const EventRegistrationForm = () => {
     submit_button_text = "Guardando Registro...";
   }
 
-  // --- LÓGICA DE CÁLCULO EN TIEMPO REAL ---
   const session_cost = session_prices[form_state.photo_package] || 0;
   const frame_cost = frame_prices[form_state.frame_style] || 0;
   const toga_cost = form_state.needs_stole_and_cap ? 150 : 0;
@@ -71,6 +82,16 @@ const EventRegistrationForm = () => {
 
   const format_currency = (amount: number) => 
     amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+  const trigger_confirmation = (e: React.FormEvent) => {
+    e.preventDefault();
+    set_show_confirm_dialog(true);
+  };
+
+  const confirm_submission = () => {
+    set_show_confirm_dialog(false);
+    handle_form_submit({ preventDefault: () => {} } as React.FormEvent);
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -92,10 +113,19 @@ const EventRegistrationForm = () => {
               <CalendarDays className="w-4 h-4" />
               {format(parseISO(target_event.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} a las {target_event.time}
             </CardDescription>
+
+            {/* --- MENSAJE DE FECHA LÍMITE --- */}
+            {target_event.deadline && (
+              <div className="mt-4 flex items-center gap-2 text-sm font-medium text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20 animate-in fade-in">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span>La fecha límite para registrarte es el <strong>{format(parseISO(target_event.deadline), "EEEE d 'de' MMMM, yyyy", { locale: es })}</strong>.</span>
+              </div>
+            )}
+            
           </CardHeader>
 
           <CardContent className="pt-8">
-            <form onSubmit={handle_form_submit} className="space-y-6">
+            <form onSubmit={trigger_confirmation} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <PersonalInfoSection 
                   student_name={form_state.student_name}
@@ -122,7 +152,6 @@ const EventRegistrationForm = () => {
                 set_custom_stole_text={form_state.set_custom_stole_text}
               />
 
-              {/* CONTADOR DE PRECIO DINÁMICO */}
               {total_cost > 0 && (
                 <div className="bg-primary/5 rounded-xl border-2 border-primary/20 p-5 mt-6 animate-in fade-in slide-in-from-bottom-2">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -161,6 +190,31 @@ const EventRegistrationForm = () => {
       </main>
       
       <Footer />
+
+      <AlertDialog open={show_confirm_dialog} onOpenChange={set_show_confirm_dialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Deseas confirmar tu registro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Estás a punto de confirmar tu paquete con un costo total de <strong className="text-foreground">{format_currency(total_cost)}</strong>.
+              <br /><br />
+              Recuerda que se requiere un anticipo de <strong className="text-foreground">{format_currency(anticipo_cost)}</strong> para apartarlo. Una vez confirmado, no podrás modificar estos datos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={is_submitting}>Revisar de nuevo</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={(e) => {
+                e.preventDefault();
+                confirm_submission();
+              }}
+              disabled={is_submitting}
+            >
+              Sí, confirmar registro
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

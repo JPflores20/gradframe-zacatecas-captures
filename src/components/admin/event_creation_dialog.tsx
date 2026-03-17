@@ -34,7 +34,8 @@ export function EventCreationDialog({
   const [event_title, set_event_title] = useState("");
   const [selected_date, set_selected_date] = useState<Date>();
   const [selected_time, set_selected_time] = useState("");
-  const [event_location, set_event_location] = useState(""); // <-- Nuevo estado para la ubicación
+  const [event_location, set_event_location] = useState("");
+  const [event_deadline, set_event_deadline] = useState("");
   const [event_details, set_event_details] = useState("");
   const [is_loading, set_is_loading] = useState(false);
 
@@ -42,7 +43,8 @@ export function EventCreationDialog({
     set_event_title("");
     set_selected_date(undefined);
     set_selected_time("");
-    set_event_location(""); // <-- Limpiar el campo
+    set_event_location(""); 
+    set_event_deadline("");
     set_event_details("");
   };
 
@@ -61,7 +63,8 @@ export function EventCreationDialog({
       title: event_title,
       date: date_string,
       time: selected_time,
-      location: event_location, // <-- Pasamos el dato a la BD
+      location: event_location, 
+      deadline: event_deadline,
       details: event_details,
       unique_code: generated_code,
       photographer_id: "admin", 
@@ -124,7 +127,7 @@ export function EventCreationDialog({
               value={event_title}
               onChange={(event) => set_event_title(event.target.value)}
               className="col-span-3"
-              placeholder="e.g., Graduación UAZ Múscia"
+              placeholder="e.g., Graduación UAZ Música"
             />
           </div>
           <div className="grid grid-cols-4 items-center gap-4">
@@ -159,7 +162,6 @@ export function EventCreationDialog({
             />
           </div>
           
-          {/* Aquí agregamos el nuevo campo de ubicación */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="location" className="text-right">Ubicación</Label>
             <Input
@@ -168,6 +170,17 @@ export function EventCreationDialog({
               onChange={(event) => set_event_location(event.target.value)}
               className="col-span-3"
               placeholder="e.g., Centro Platero, Estudio, etc."
+            />
+          </div>
+
+          <div className="grid grid-cols-4 items-center gap-4">
+            <Label htmlFor="deadline" className="text-right text-xs leading-tight">Límite de Registro</Label>
+            <Input
+              id="deadline"
+              type="date"
+              value={event_deadline}
+              onChange={(event) => set_event_deadline(event.target.value)}
+              className="col-span-3"
             />
           </div>
 
