@@ -105,6 +105,9 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
         "Toga/Birrete", "Estola", "Costo Total", "Anticipo (50%)"
       ];
       
+      let gran_total = 0;
+      let gran_anticipo = 0;
+      
       const tableRows = registrations.map(reg => {
         let total = 0;
         
@@ -125,6 +128,9 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
 
         const anticipo = total / 2;
 
+        gran_total += total;
+        gran_anticipo += anticipo;
+
         return [
           reg.name,
           reg.phone_number,
@@ -141,9 +147,15 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
       autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
+        // Aquí se cambió el fillColor a [220, 38, 38] que es un tono de rojo
+        foot: [[
+          { content: 'TOTALES:', colSpan: 7, styles: { halign: 'right', fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
+          { content: format_currency(gran_total), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
+          { content: format_currency(gran_anticipo), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } }
+        ]],
         startY: 45,
         theme: 'grid',
-        headStyles: { fillColor: [41, 128, 185] }, 
+        headStyles: { fillColor: [41, 128, 185] }, // Mantiene el encabezado azul
         styles: { fontSize: 8, cellPadding: 3 },
       });
 
