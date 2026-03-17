@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import Navbar from '@/components/navbar';
 import Footer from '@/components/footer';
-import { CalendarDays, ArrowLeft, DollarSign, AlertCircle } from "lucide-react"; // Añadido AlertCircle
+import { CalendarDays, ArrowLeft, DollarSign, AlertCircle } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { use_registration_logic } from "@/functions/use_registration_logic";
@@ -50,6 +50,7 @@ const EventRegistrationForm = () => {
   } = use_registration_logic();
 
   const [show_confirm_dialog, set_show_confirm_dialog] = useState(false);
+  const [show_errors, set_show_errors] = useState(false);
 
   if (is_loading_event) {
     return (
@@ -85,6 +86,21 @@ const EventRegistrationForm = () => {
 
   const trigger_confirmation = (e: React.FormEvent) => {
     e.preventDefault();
+    set_show_errors(true); // Mostrar bordes rojos si falta algo
+
+    // Validar manualmente que no falte nada y que el teléfono tenga 10 dígitos
+    if (
+      !form_state.student_name.trim() ||
+      form_state.phone_number.length !== 10 ||
+      !form_state.student_height.trim() ||
+      !form_state.photo_package || 
+      !form_state.frame_style
+    ) {
+      // Si alguna validación falla, detenemos el proceso (el modal no se abre)
+      return;
+    }
+
+    // Si todo está correcto, mostramos el modal de confirmación
     set_show_confirm_dialog(true);
   };
 
@@ -114,7 +130,6 @@ const EventRegistrationForm = () => {
               {format(parseISO(target_event.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} a las {target_event.time}
             </CardDescription>
 
-            {/* --- MENSAJE DE FECHA LÍMITE --- */}
             {target_event.deadline && (
               <div className="mt-4 flex items-center gap-2 text-sm font-medium text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20 animate-in fade-in">
                 <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -132,10 +147,12 @@ const EventRegistrationForm = () => {
                   set_student_name={form_state.set_student_name}
                   phone_number={form_state.phone_number}
                   set_phone_number={form_state.set_phone_number}
+                  show_errors={show_errors}
                 />
                 <OutfitDetailsSection 
                   student_height={form_state.student_height}
                   set_student_height={form_state.set_student_height}
+                  show_errors={show_errors}
                 />
               </div>
 
@@ -150,6 +167,7 @@ const EventRegistrationForm = () => {
                 set_needs_custom_stole={form_state.set_needs_custom_stole}
                 custom_stole_text={form_state.custom_stole_text}
                 set_custom_stole_text={form_state.set_custom_stole_text}
+                show_errors={show_errors}
               />
 
               {total_cost > 0 && (
@@ -177,7 +195,12 @@ const EventRegistrationForm = () => {
               )}
 
               <div className="pt-6">
-                <Button type="submit" className="w-full h-12 text-lg" disabled={is_submitting || total_cost === 0}>
+                <Button 
+                  type="submit" 
+                  className="w-full h-12 text-lg" 
+                  disabled={is_submitting}
+                  onClick={() => set_show_errors(true)}
+                >
                   {submit_button_text}
                 </Button>
               </div>
