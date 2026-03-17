@@ -90,7 +90,7 @@ export const PackageDetailsSection = ({
               onCheckedChange={(checked) => set_needs_stole_and_cap(checked as boolean)} 
             />
             <Label htmlFor="stoleAndCap" className="font-medium cursor-pointer">
-              Estola y Birrete
+              Toga y Birrete
             </Label>
           </div>
           <div className="flex items-center space-x-2">
