@@ -3,13 +3,31 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import Navbar from '@/components/navbar';
 import Footer from '@/components/footer';
-import { CalendarDays, ArrowLeft } from "lucide-react";
+import { CalendarDays, ArrowLeft, DollarSign } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import { use_registration_logic } from "@/functions/use_registration_logic";
 import { PersonalInfoSection } from '@/components/registration/personal_info_section';
 import { OutfitDetailsSection } from '@/components/registration/outfit_details_section';
 import { PackageDetailsSection } from '@/components/registration/package_details_section';
+
+// Diccionarios de precios para el cálculo en tiempo real
+const session_prices: Record<string, number> = {
+  "Sesión completa": 1700,
+  "Sesión temática": 1200,
+  "Sesión de gala": 1200,
+  "Sesión familiar": 1500,
+};
+
+const frame_prices: Record<string, number> = {
+  "Sin cuadro": 0,
+  "CUADRO GRANDE F1": 2200,
+  "CUADRO PEQUEÑO F2": 1400,
+  "CUADRO GRANDE MDF": 1700,
+  "CUADRO PEQUEÑO MDF": 1100,
+  "CUADRO GRANDE MINIMALISTA": 1200,
+  "CUADRO PEQUEÑO MINIMALISTA": 900,
+};
 
 const EventRegistrationForm = () => {
   const {
@@ -41,6 +59,18 @@ const EventRegistrationForm = () => {
   if (is_submitting) {
     submit_button_text = "Guardando Registro...";
   }
+
+  // --- LÓGICA DE CÁLCULO EN TIEMPO REAL ---
+  const session_cost = session_prices[form_state.photo_package] || 0;
+  const frame_cost = frame_prices[form_state.frame_style] || 0;
+  const toga_cost = form_state.needs_stole_and_cap ? 150 : 0;
+  const estola_cost = form_state.needs_custom_stole ? 450 : 0;
+
+  const total_cost = session_cost + frame_cost + toga_cost + estola_cost;
+  const anticipo_cost = total_cost / 2;
+
+  const format_currency = (amount: number) => 
+    amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -92,14 +122,39 @@ const EventRegistrationForm = () => {
                 set_custom_stole_text={form_state.set_custom_stole_text}
               />
 
+              {/* CONTADOR DE PRECIO DINÁMICO */}
+              {total_cost > 0 && (
+                <div className="bg-primary/5 rounded-xl border-2 border-primary/20 p-5 mt-6 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div className="text-center sm:text-left w-full sm:w-auto">
+                      <h4 className="font-serif text-xl text-foreground">Resumen de tu paquete</h4>
+                      <div className="flex items-center justify-center sm:justify-start gap-2 mt-1.5">
+                        <span className="text-sm text-muted-foreground">Costo Total:</span>
+                        <span className="font-semibold text-base">{format_currency(total_cost)}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col items-center sm:items-end w-full sm:w-auto bg-background px-5 py-3 rounded-xl border-2 border-primary/10 shadow-sm">
+                      <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Anticipo (50%)</p>
+                      <div className="flex items-center gap-1 text-primary">
+                        <DollarSign className="h-6 w-6" />
+                        <span className="font-serif text-3xl font-bold text-foreground">
+                          {anticipo_cost.toLocaleString('es-MX')}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-6">
-                <Button type="submit" className="w-full h-12 text-lg" disabled={is_submitting}>
+                <Button type="submit" className="w-full h-12 text-lg" disabled={is_submitting || total_cost === 0}>
                   {submit_button_text}
                 </Button>
               </div>
             </form>
           </CardContent>
-          <CardFooter className="justify-center text-sm text-muted-foreground border-t p-4 mt-6">
+          <CardFooter className="justify-center text-sm text-muted-foreground border-t p-4 mt-6 text-center">
             Asegúrate de revisar todos tus datos antes de confirmar.
           </CardFooter>
         </Card>
