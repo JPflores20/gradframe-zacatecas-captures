@@ -1,4 +1,4 @@
-import { collection, addDoc, Timestamp, query, where, getDocs, QuerySnapshot, DocumentData } from "firebase/firestore";
+import { collection, addDoc, Timestamp, query, where, getDocs, QuerySnapshot, DocumentData, doc, deleteDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { GradframeEvent } from "@/types/gradframe_event";
 import { GradframeRegistration } from "@/types/gradframe_registration";
@@ -12,7 +12,7 @@ export const create_new_event = async (event_data: Omit<GradframeEvent, "id" | "
       title: event_data.title,
       date: event_data.date,
       time: event_data.time,
-      location: event_data.location || "", // <-- Agregamos esto para guardar la ubicación
+      location: event_data.location || "", 
       details: event_data.details || "",
       unique_code: event_data.unique_code,
       photographer_id: event_data.photographer_id,
@@ -92,5 +92,27 @@ export const fetch_registrations_by_event = async (event_id: string): Promise<Gr
   } catch (error) {
     console.error("Error fetching event registrations:", error);
     return [];
+  }
+};
+
+export const delete_admin_event = async (event_id: string): Promise<boolean> => {
+  try {
+    const event_ref = doc(db, FIREBASE_COLLECTION_EVENTS, event_id);
+    await deleteDoc(event_ref);
+    return true;
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    return false;
+  }
+};
+
+export const update_admin_event = async (event_id: string, updated_data: Partial<GradframeEvent>): Promise<boolean> => {
+  try {
+    const event_ref = doc(db, FIREBASE_COLLECTION_EVENTS, event_id);
+    await updateDoc(event_ref, updated_data);
+    return true;
+  } catch (error) {
+    console.error("Error updating event:", error);
+    return false;
   }
 };

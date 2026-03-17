@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, Copy, CalendarDays, Download, Loader2 } from "lucide-react";
+import { Clock, MapPin, Copy, CalendarDays, Download, Loader2, Pencil, Trash2, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { GradframeEvent } from "@/types/gradframe_event";
-import { fetch_registrations_by_event } from "@/functions/database";
+import { fetch_registrations_by_event, delete_admin_event, update_admin_event } from "@/functions/database";
+import { Input } from "@/components/ui/input";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -16,12 +17,58 @@ interface EventListProps {
 
 export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListProps) => {
   const [downloading_event_id, set_downloading_event_id] = useState<string | null>(null);
+  const [editing_event_id, set_editing_event_id] = useState<string | null>(null);
+  const [edit_form_data, set_edit_form_data] = useState<Partial<GradframeEvent>>({});
 
   const copy_to_clipboard = (code_string: string) => {
     navigator.clipboard.writeText(code_string);
     toast.success("Código copiado al portapapeles", {
       description: code_string,
     });
+  };
+
+  const handle_delete_event = async (id: string | undefined) => {
+    if (!id) return;
+    if (window.confirm("¿Estás seguro de que deseas eliminar este evento? Esta acción no se puede deshacer.")) {
+      const success = await delete_admin_event(id);
+      if (success) {
+        toast.success("Evento eliminado correctamente");
+      } else {
+        toast.error("Hubo un error al eliminar el evento");
+      }
+    }
+  };
+
+  const start_editing = (event: GradframeEvent) => {
+    set_editing_event_id(event.id || null);
+    set_edit_form_data({ ...event });
+  };
+
+  const cancel_editing = () => {
+    set_editing_event_id(null);
+    set_edit_form_data({});
+  };
+
+  const handle_edit_change = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    set_edit_form_data(prev => ({ ...prev, [name]: value }));
+  };
+
+  const save_edit = async () => {
+    if (!editing_event_id) return;
+    
+    if (!edit_form_data.title || !edit_form_data.date || !edit_form_data.time) {
+      toast.error("El título, la fecha y la hora son obligatorios.");
+      return;
+    }
+
+    const success = await update_admin_event(editing_event_id, edit_form_data);
+    if (success) {
+      toast.success("Evento actualizado correctamente");
+      set_editing_event_id(null);
+    } else {
+      toast.error("Hubo un error al actualizar el evento");
+    }
   };
 
   const download_event_pdf = async (event: GradframeEvent) => {
@@ -61,17 +108,14 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
       const tableRows = registrations.map(reg => {
         let total = 0;
         
-        // 1. Sumar precio del paquete base
         if (reg.photo_package === "Sesión completa") total += 1700;
         else if (reg.photo_package === "Sesión temática") total += 1200;
         else if (reg.photo_package === "Sesión de gala") total += 1200;
         else if (reg.photo_package === "Sesión familiar") total += 1500;
 
-        // 2. Sumar adicionales
         if (reg.stole_and_cap) total += 150;
         if (reg.custom_stole) total += 450;
         
-        // 3. Sumar el estilo de cuadro exacto
         if (reg.frame_style === "CUADRO GRANDE F1") total += 2200;
         else if (reg.frame_style === "CUADRO PEQUEÑO F2") total += 1400;
         else if (reg.frame_style === "CUADRO GRANDE MDF") total += 1700;
@@ -79,7 +123,6 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
         else if (reg.frame_style === "CUADRO GRANDE MINIMALISTA") total += 1200;
         else if (reg.frame_style === "CUADRO PEQUEÑO MINIMALISTA") total += 900;
 
-        // Calcular anticipo
         const anticipo = total / 2;
 
         return [
@@ -139,51 +182,113 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
           key={event_item.id}
           className="flex flex-col lg:flex-row justify-between items-start lg:items-center p-4 border rounded-lg hover:bg-accent/50 transition-colors"
         >
-          <div className="space-y-2 mb-4 lg:mb-0">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-lg">{event_item.title}</h3>
-              <Badge variant="secondary" className="font-mono cursor-pointer" onClick={() => copy_to_clipboard(event_item.unique_code)}>
-                {event_item.unique_code} <Copy className="w-3 h-3 ml-1 inline" />
-              </Badge>
-            </div>
-            
-            <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <CalendarDays className="w-4 h-4" />
-                {format(parseISO(event_item.date), "dd/MM/yyyy")}
-              </div>
-              <div className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
-                {event_item.time}
-              </div>
-              {event_item.details && (
-                <div className="flex items-center gap-1">
-                  <MapPin className="w-4 h-4" />
-                  <span className="line-clamp-1 max-w-[200px]">{event_item.details}</span>
+          {editing_event_id === event_item.id ? (
+            <div className="w-full space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Título del evento</label>
+                  <Input 
+                    name="title" 
+                    value={edit_form_data.title || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
                 </div>
-              )}
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Detalles / Ubicación</label>
+                  <Input 
+                    name="details" 
+                    value={edit_form_data.details || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Fecha</label>
+                  <Input 
+                    type="date" 
+                    name="date" 
+                    value={edit_form_data.date || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Hora</label>
+                  <Input 
+                    type="time" 
+                    name="time" 
+                    value={edit_form_data.time || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-2">
+                <Button variant="outline" size="sm" onClick={cancel_editing}>
+                  <X className="w-4 h-4 mr-1" /> Cancelar
+                </Button>
+                <Button size="sm" onClick={save_edit}>
+                  <Check className="w-4 h-4 mr-1" /> Guardar
+                </Button>
+              </div>
             </div>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
-            <Button variant="outline" size="sm" onClick={() => copy_to_clipboard(event_item.unique_code)}>
-              Copiar Código
-            </Button>
-            <Button 
-              variant="default" 
-              size="sm" 
-              className="bg-green-600 hover:bg-green-700 text-white"
-              onClick={() => download_event_pdf(event_item)}
-              disabled={downloading_event_id === event_item.id}
-            >
-              {downloading_event_id === event_item.id ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="w-4 h-4 mr-2" />
-              )}
-              Descargar PDF
-            </Button>
-          </div>
+          ) : (
+            <>
+              <div className="space-y-2 mb-4 lg:mb-0 w-full lg:w-auto">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-lg">{event_item.title}</h3>
+                  <Badge variant="secondary" className="font-mono cursor-pointer" onClick={() => copy_to_clipboard(event_item.unique_code)}>
+                    {event_item.unique_code} <Copy className="w-3 h-3 ml-1 inline" />
+                  </Badge>
+                </div>
+                
+                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <CalendarDays className="w-4 h-4" />
+                    {format(parseISO(event_item.date), "dd/MM/yyyy")}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="w-4 h-4" />
+                    {event_item.time}
+                  </div>
+                  {event_item.details && (
+                    <div className="flex items-center gap-1">
+                      <MapPin className="w-4 h-4" />
+                      <span className="line-clamp-1 max-w-[200px]">{event_item.details}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
+                <Button variant="outline" size="icon" onClick={() => start_editing(event_item)} title="Editar evento">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => handle_delete_event(event_item.id)} title="Eliminar evento">
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => copy_to_clipboard(event_item.unique_code)}>
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copiar Código
+                </Button>
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => download_event_pdf(event_item)}
+                  disabled={downloading_event_id === event_item.id}
+                >
+                  {downloading_event_id === event_item.id ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="w-4 h-4 mr-2" />
+                  )}
+                  Descargar PDF
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ))}
     </div>
