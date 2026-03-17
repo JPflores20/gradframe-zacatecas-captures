@@ -9,6 +9,16 @@ import { fetch_registrations_by_event, delete_admin_event, update_admin_event } 
 import { Input } from "@/components/ui/input";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface EventListProps {
   is_loading: boolean;
@@ -19,6 +29,9 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
   const [downloading_event_id, set_downloading_event_id] = useState<string | null>(null);
   const [editing_event_id, set_editing_event_id] = useState<string | null>(null);
   const [edit_form_data, set_edit_form_data] = useState<Partial<GradframeEvent>>({});
+  
+  // Nuevo estado para controlar la ventana de confirmación de eliminación
+  const [event_to_delete, set_event_to_delete] = useState<string | null>(null);
 
   const copy_to_clipboard = (code_string: string) => {
     navigator.clipboard.writeText(code_string);
@@ -27,16 +40,23 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     });
   };
 
-  const handle_delete_event = async (id: string | undefined) => {
+  // Esta función ahora solo abre el modal
+  const handle_delete_click = (id: string | undefined) => {
     if (!id) return;
-    if (window.confirm("¿Estás seguro de que deseas eliminar este evento? Esta acción no se puede deshacer.")) {
-      const success = await delete_admin_event(id);
-      if (success) {
-        toast.success("Evento eliminado correctamente");
-      } else {
-        toast.error("Hubo un error al eliminar el evento");
-      }
+    set_event_to_delete(id);
+  };
+
+  // Esta función ejecuta la eliminación real cuando se confirma
+  const confirm_delete_event = async () => {
+    if (!event_to_delete) return;
+    
+    const success = await delete_admin_event(event_to_delete);
+    if (success) {
+      toast.success("Evento eliminado correctamente");
+    } else {
+      toast.error("Hubo un error al eliminar el evento");
     }
+    set_event_to_delete(null); // Cerramos el modal
   };
 
   const start_editing = (event: GradframeEvent) => {
@@ -147,7 +167,6 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
       autoTable(doc, {
         head: [tableColumn],
         body: tableRows,
-        // Aquí se cambió el fillColor a [220, 38, 38] que es un tono de rojo
         foot: [[
           { content: 'TOTALES:', colSpan: 7, styles: { halign: 'right', fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
           { content: format_currency(gran_total), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
@@ -155,7 +174,7 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
         ]],
         startY: 45,
         theme: 'grid',
-        headStyles: { fillColor: [41, 128, 185] }, // Mantiene el encabezado azul
+        headStyles: { fillColor: [41, 128, 185] }, 
         styles: { fontSize: 8, cellPadding: 3 },
       });
 
@@ -277,7 +296,8 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                 <Button variant="outline" size="icon" onClick={() => start_editing(event_item)} title="Editar evento">
                   <Pencil className="w-4 h-4 text-blue-600" />
                 </Button>
-                <Button variant="outline" size="icon" onClick={() => handle_delete_event(event_item.id)} title="Eliminar evento">
+                {/* Modificamos el botón para abrir el modal */}
+                <Button variant="outline" size="icon" onClick={() => handle_delete_click(event_item.id)} title="Eliminar evento">
                   <Trash2 className="w-4 h-4 text-red-600" />
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => copy_to_clipboard(event_item.unique_code)}>
@@ -296,13 +316,34 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                   ) : (
                     <Download className="w-4 h-4 mr-2" />
                   )}
-                  Descargar PDF
+                  DescargarPDF
                 </Button>
               </div>
             </>
           )}
         </div>
       ))}
+
+      {/* Componente de la ventana de confirmación */}
+      <AlertDialog open={!!event_to_delete} onOpenChange={(open) => !open && set_event_to_delete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Estás completamente seguro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Esto eliminará permanentemente el evento y los graduados ya no podrán registrarse usando el código.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => set_event_to_delete(null)}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirm_delete_event} 
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Eliminar Evento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
