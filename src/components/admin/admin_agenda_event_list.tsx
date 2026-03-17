@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, Copy, CalendarDays, Download, Loader2, Pencil, Trash2, X, Check } from "lucide-react";
+import { Clock, MapPin, Copy, CalendarDays, Download, Loader2, Pencil, Trash2, X, Check, CalendarPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { GradframeEvent } from "@/types/gradframe_event";
@@ -30,7 +30,6 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
   const [editing_event_id, set_editing_event_id] = useState<string | null>(null);
   const [edit_form_data, set_edit_form_data] = useState<Partial<GradframeEvent>>({});
   
-  // Nuevo estado para controlar la ventana de confirmación de eliminación
   const [event_to_delete, set_event_to_delete] = useState<string | null>(null);
 
   const copy_to_clipboard = (code_string: string) => {
@@ -40,13 +39,11 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     });
   };
 
-  // Esta función ahora solo abre el modal
   const handle_delete_click = (id: string | undefined) => {
     if (!id) return;
     set_event_to_delete(id);
   };
 
-  // Esta función ejecuta la eliminación real cuando se confirma
   const confirm_delete_event = async () => {
     if (!event_to_delete) return;
     
@@ -56,7 +53,7 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     } else {
       toast.error("Hubo un error al eliminar el evento");
     }
-    set_event_to_delete(null); // Cerramos el modal
+    set_event_to_delete(null); 
   };
 
   const start_editing = (event: GradframeEvent) => {
@@ -190,6 +187,32 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     }
   };
 
+  // Función para generar el enlace a Google Calendar
+  const get_google_calendar_url = (event_item: GradframeEvent) => {
+    try {
+      // Extraemos año, mes, día, hora y minutos
+      const [year, month, day] = event_item.date.split("-");
+      const [hour, minute] = event_item.time.split(":");
+      
+      // Creamos el objeto Date (mes es base 0 en JS)
+      const start_date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+      // Asumimos 2 horas de duración para el evento fotográfico
+      const end_date = new Date(start_date.getTime() + 2 * 60 * 60 * 1000); 
+      
+      // Formato requerido por Google (YYYYMMDDTHHmmssZ)
+      const format_date_gcal = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
+      
+      const text = encodeURIComponent(event_item.title);
+      const dates = `${format_date_gcal(start_date)}/${format_date_gcal(end_date)}`;
+      const details = encodeURIComponent(`Código del evento: ${event_item.unique_code}\n\nDetalles: ${event_item.details || "Sin detalles extra"}`);
+      const location = encodeURIComponent(event_item.location || event_item.details || "Zacatecas");
+      
+      return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${text}&dates=${dates}&details=${details}&location=${location}`;
+    } catch (e) {
+      return "#";
+    }
+  };
+
   if (is_loading) {
     return (
       <div className="flex justify-center py-12">
@@ -226,10 +249,10 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-muted-foreground">Detalles / Ubicación</label>
+                  <label className="text-xs font-medium text-muted-foreground">Ubicación</label>
                   <Input 
-                    name="details" 
-                    value={edit_form_data.details || ""} 
+                    name="location" 
+                    value={edit_form_data.location || ""} 
                     onChange={handle_edit_change} 
                     className="mt-1 h-8"
                   />
@@ -250,6 +273,25 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                     type="time" 
                     name="time" 
                     value={edit_form_data.time || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Fecha Límite</label>
+                  <Input 
+                    type="date" 
+                    name="deadline" 
+                    value={edit_form_data.deadline || ""} 
+                    onChange={handle_edit_change} 
+                    className="mt-1 h-8"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground">Detalles</label>
+                  <Input 
+                    name="details" 
+                    value={edit_form_data.details || ""} 
                     onChange={handle_edit_change} 
                     className="mt-1 h-8"
                   />
@@ -283,26 +325,38 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                     <Clock className="w-4 h-4" />
                     {event_item.time}
                   </div>
-                  {event_item.details && (
+                  {event_item.location && (
                     <div className="flex items-center gap-1">
                       <MapPin className="w-4 h-4" />
-                      <span className="line-clamp-1 max-w-[200px]">{event_item.details}</span>
+                      <span className="line-clamp-1 max-w-[200px]">{event_item.location}</span>
+                    </div>
+                  )}
+                  {event_item.deadline && (
+                    <div className="flex items-center gap-1 text-red-500 font-medium">
+                      <Clock className="w-4 h-4" />
+                      Límite: {format(parseISO(event_item.deadline), "dd/MM/yyyy")}
                     </div>
                   )}
                 </div>
               </div>
               
               <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
+                {/* --- NUEVO BOTÓN DE GOOGLE CALENDAR --- */}
+                <Button variant="outline" size="icon" asChild title="Añadir a Google Calendar">
+                  <a href={get_google_calendar_url(event_item)} target="_blank" rel="noopener noreferrer">
+                    <CalendarPlus className="w-4 h-4 text-blue-500" />
+                  </a>
+                </Button>
+                
                 <Button variant="outline" size="icon" onClick={() => start_editing(event_item)} title="Editar evento">
                   <Pencil className="w-4 h-4 text-blue-600" />
                 </Button>
-                {/* Modificamos el botón para abrir el modal */}
                 <Button variant="outline" size="icon" onClick={() => handle_delete_click(event_item.id)} title="Eliminar evento">
                   <Trash2 className="w-4 h-4 text-red-600" />
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => copy_to_clipboard(event_item.unique_code)}>
                   <Copy className="w-4 h-4 mr-2" />
-                  Copiar Código
+                  Copiar Código 
                 </Button>
                 <Button 
                   variant="default" 
@@ -316,15 +370,14 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                   ) : (
                     <Download className="w-4 h-4 mr-2" />
                   )}
-                  DescargarPDF
+                  Descargar PDF
                 </Button>
               </div>
             </>
           )}
         </div>
       ))}
-
-      {/* Componente de la ventana de confirmación */}
+      
       <AlertDialog open={!!event_to_delete} onOpenChange={(open) => !open && set_event_to_delete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -344,6 +397,7 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
     </div>
   );
 };
