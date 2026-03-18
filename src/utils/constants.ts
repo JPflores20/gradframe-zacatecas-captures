@@ -29,4 +29,5 @@ export const TEST_ADMIN_PASSWORD = "admin";
 
 // Constantes misceláneas
 export const REQUIRED_CODE_LENGTH = 6;
-export const CONTACT_WHATSAPP_NUMBER = "524921234567"; // Número de WhatsApp para reservaciones (Modificar si es necesario)
+// Número de WhatsApp actualizado:
+export const CONTACT_WHATSAPP_NUMBER = "5215646831101";

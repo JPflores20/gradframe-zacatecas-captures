@@ -1,9 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { MessageCircle, Camera, Check } from "lucide-react";
 import { motion } from "framer-motion";
+import { CONTACT_WHATSAPP_NUMBER } from "@/utils/constants";
 
+// Usamos la constante aquí también para mantener la consistencia
 const WHATSAPP_URL =
-  "https://wa.me/5215646831101?text=Hola%2C%20quisiera%20recibir%20m%C3%A1s%20informaci%C3%B3n%20sobre%20el%20paquete%20de%20tres%20sesiones";
+  `https://wa.me/${CONTACT_WHATSAPP_NUMBER}?text=Hola%2C%20quisiera%20recibir%20m%C3%A1s%20informaci%C3%B3n%20sobre%20el%20paquete%20de%20tres%20sesiones`;
 
 const session_types = [
   { 
