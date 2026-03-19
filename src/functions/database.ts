@@ -11,12 +11,14 @@ export const create_new_event = async (event_data: Omit<GradframeEvent, "id" | "
     await addDoc(events_ref, {
       title: event_data.title,
       date: event_data.date,
-      time: event_data.time,
+      startTime: event_data.startTime,
+      endTime: event_data.endTime,
       location: event_data.location || "", 
       details: event_data.details || "",
       unique_code: event_data.unique_code,
       photographer_id: event_data.photographer_id,
       deadline: event_data.deadline || "",
+      sessions: event_data.sessions || [],
       created_at: Timestamp.now(),
     });
     

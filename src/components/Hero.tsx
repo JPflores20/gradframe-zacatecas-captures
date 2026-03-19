@@ -77,12 +77,22 @@ const Hero = () => (
           Zacatecas, México
         </motion.span>
         
-        {/* CORRECCIÓN: Título con efecto de máquina de escribir */}
+        {/* El logo ahora aparece arriba del texto de bienvenida */}
+        <motion.img
+          variants={item_variants}
+          whileHover={{ scale: 1.05, rotate: -2 }}
+          transition={{ type: "spring", stiffness: 300 }}
+          src="/GF_logo.avif"
+          alt="GradFrame Logo"
+          className="mx-auto mt-6 h-20 w-auto object-contain sm:h-24 md:h-28 drop-shadow-xl cursor-pointer"
+        />
+
+        {/* Título con efecto de máquina de escribir movido debajo del logo */}
         <motion.h1 
-          variants={typing_container_variants} // Usamos las nuevas variantes
+          variants={typing_container_variants}
           initial="hidden"
           animate="show"
-          className="mt-6 font-serif text-4xl font-light leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl drop-shadow-sm flex flex-wrap justify-center items-center"
+          className="mt-8 font-serif text-4xl font-light leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl drop-shadow-sm flex flex-wrap justify-center items-center"
         >
           {welcome_text.split("").map((letter, index) => {
             if (letter === "G" && welcome_text.substring(index, index + 9) === "GRADFRAME") {
@@ -116,15 +126,6 @@ const Hero = () => (
             className="inline-block ml-1 h-[1em] w-[2px] bg-foreground"
           />
         </motion.h1>
-        
-        <motion.img
-          variants={item_variants}
-          whileHover={{ scale: 1.05, rotate: -2 }}
-          transition={{ type: "spring", stiffness: 300 }}
-          src="/GF_logo.avif"
-          alt="GradFrame Logo"
-          className="mx-auto mt-8 h-20 w-auto object-contain sm:h-24 md:h-28 drop-shadow-xl cursor-pointer"
-        />
         
         <motion.p 
           variants={item_variants}

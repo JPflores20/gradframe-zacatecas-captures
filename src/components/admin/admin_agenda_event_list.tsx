@@ -1,12 +1,14 @@
 import { useState } from "react";
 import { format, parseISO } from "date-fns";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, Copy, CalendarDays, Download, Loader2, Pencil, Trash2, X, Check, CalendarPlus } from "lucide-react";
+import { Clock, MapPin, Copy, CalendarDays, Download, Loader2, Pencil, Trash2, X, Check, CalendarPlus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { GradframeEvent } from "@/types/gradframe_event";
+import { GradframeEvent, EventSession } from "@/types/gradframe_event";
 import { fetch_registrations_by_event, delete_admin_event, update_admin_event } from "@/functions/database";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import {
@@ -71,11 +73,32 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     set_edit_form_data(prev => ({ ...prev, [name]: value }));
   };
 
+  const add_session = () => {
+    set_edit_form_data(prev => ({
+      ...prev,
+      sessions: [...(prev.sessions || []), { id: crypto.randomUUID(), type: "Gala", date: "", startTime: "", endTime: "", location: "" }]
+    }));
+  };
+
+  const update_session = (id: string, field: keyof EventSession, value: string) => {
+    set_edit_form_data(prev => ({
+      ...prev,
+      sessions: prev.sessions?.map(s => s.id === id ? { ...s, [field]: value } : s)
+    }));
+  };
+
+  const remove_session = (id: string) => {
+    set_edit_form_data(prev => ({
+      ...prev,
+      sessions: prev.sessions?.filter(s => s.id !== id)
+    }));
+  };
+
   const save_edit = async () => {
     if (!editing_event_id) return;
     
-    if (!edit_form_data.title || !edit_form_data.date || !edit_form_data.time) {
-      toast.error("El título, la fecha y la hora son obligatorios.");
+    if (!edit_form_data.title || !edit_form_data.date || !edit_form_data.startTime || !edit_form_data.endTime) {
+      toast.error("El título, la fecha y el horario de inicio y fin son obligatorios.");
       return;
     }
 
@@ -111,7 +134,7 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
       doc.setFontSize(11);
       doc.setTextColor(100);
       const event_date = format(parseISO(event.date), "dd/MM/yyyy");
-      doc.text(`Fecha: ${event_date} | Hora: ${event.time} | Código: ${event.unique_code}`, 14, 30);
+      doc.text(`Fecha: ${event_date} | Horario: ${event.startTime} - ${event.endTime} | Código: ${event.unique_code}`, 14, 30);
       doc.text(`Total de registrados: ${registrations.length}`, 14, 38);
 
       const format_currency = (amount: number) => 
@@ -192,12 +215,20 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
     try {
       // Extraemos año, mes, día, hora y minutos
       const [year, month, day] = event_item.date.split("-");
-      const [hour, minute] = event_item.time.split(":");
+      let start_hour = "00"; let start_minute = "00";
+      if (event_item.startTime) {
+        [start_hour, start_minute] = event_item.startTime.split(":");
+      }
       
-      // Creamos el objeto Date (mes es base 0 en JS)
-      const start_date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
-      // Asumimos 2 horas de duración para el evento fotográfico
-      const end_date = new Date(start_date.getTime() + 2 * 60 * 60 * 1000); 
+      const start_date = new Date(Number(year), Number(month) - 1, Number(day), Number(start_hour), Number(start_minute));
+      
+      let end_date;
+      if (event_item.endTime) {
+        const [end_hour, end_minute] = event_item.endTime.split(":");
+        end_date = new Date(Number(year), Number(month) - 1, Number(day), Number(end_hour), Number(end_minute));
+      } else {
+        end_date = new Date(start_date.getTime() + 2 * 60 * 60 * 1000); 
+      }
       
       // Formato requerido por Google (YYYYMMDDTHHmmssZ)
       const format_date_gcal = (d: Date) => d.toISOString().replace(/-|:|\.\d\d\d/g, "");
@@ -267,15 +298,27 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                     className="mt-1 h-8"
                   />
                 </div>
-                <div>
-                  <label className="text-xs font-medium text-muted-foreground">Hora</label>
-                  <Input 
-                    type="time" 
-                    name="time" 
-                    value={edit_form_data.time || ""} 
-                    onChange={handle_edit_change} 
-                    className="mt-1 h-8"
-                  />
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs font-medium text-muted-foreground">Inicio</label>
+                    <Input 
+                      type="time" 
+                      name="startTime" 
+                      value={edit_form_data.startTime || ""} 
+                      onChange={handle_edit_change} 
+                      className="mt-1 h-8"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-medium text-muted-foreground">Fin</label>
+                    <Input 
+                      type="time" 
+                      name="endTime" 
+                      value={edit_form_data.endTime || ""} 
+                      onChange={handle_edit_change} 
+                      className="mt-1 h-8"
+                    />
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground">Fecha Límite</label>
@@ -297,7 +340,67 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                   />
                 </div>
               </div>
-              <div className="flex justify-end gap-2 mt-2">
+
+              {/* SESIONES ADICIONALES (MODO EDICIÓN) */}
+              <div className="border-t pt-4 mt-4 w-full">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="font-semibold text-sm block">Sesiones Adicionales</label>
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={add_session}>
+                    <Plus className="h-4 w-4 mr-1" /> Añadir
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {edit_form_data.sessions?.map(session => (
+                    <div key={session.id} className="relative bg-muted/30 p-3 rounded-lg border border-border/50 grid gap-3">
+                      <Button 
+                        type="button" variant="ghost" size="icon" 
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-background border shadow-sm text-red-500 hover:bg-red-50 z-10" 
+                        onClick={() => remove_session(session.id)}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="col-span-2 sm:col-span-1">
+                          <label className="text-[11px] mb-1 block text-muted-foreground">Tipo</label>
+                          <Select value={session.type} onValueChange={(val) => update_session(session.id, "type", val)}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Tipo" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Gala">Gala</SelectItem>
+                              <SelectItem value="Temática">Temática</SelectItem>
+                              <SelectItem value="Familiar">Familiar</SelectItem>
+                              <SelectItem value="Individual">Individual</SelectItem>
+                              <SelectItem value="Múltiple">Múltiple</SelectItem>
+                              <SelectItem value="General">General</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-2 sm:col-span-1">
+                          <label className="text-[11px] mb-1 block text-muted-foreground">Ubicación</label>
+                          <Input className="h-8 text-xs" value={session.location || ""} onChange={e => update_session(session.id, "location", e.target.value)} />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="text-[11px] mb-1 block text-muted-foreground">Fecha</label>
+                          <Input type="date" className="h-8 text-xs" value={session.date} onChange={e => update_session(session.id, "date", e.target.value)} />
+                        </div>
+                        <div className="col-span-1 flex gap-2">
+                          <div className="w-1/2">
+                            <label className="text-[11px] mb-1 block text-muted-foreground">Inicio</label>
+                            <Input type="time" className="h-8 text-xs px-1" value={session.startTime} onChange={e => update_session(session.id, "startTime", e.target.value)} />
+                          </div>
+                          <div className="w-1/2">
+                            <label className="text-[11px] mb-1 block text-muted-foreground">Fin</label>
+                            <Input type="time" className="h-8 text-xs px-1" value={session.endTime} onChange={e => update_session(session.id, "endTime", e.target.value)} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 mt-4">
                 <Button variant="outline" size="sm" onClick={cancel_editing}>
                   <X className="w-4 h-4 mr-1" /> Cancelar
                 </Button>
@@ -323,7 +426,7 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="w-4 h-4" />
-                    {event_item.time}
+                    {event_item.startTime} - {event_item.endTime}
                   </div>
                   {event_item.location && (
                     <div className="flex items-center gap-1">
@@ -338,6 +441,34 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
                     </div>
                   )}
                 </div>
+
+                {/* Visualización de sub-sesiones en el evento */}
+                {event_item.sessions && event_item.sessions.length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-border/50">
+                    <h4 className="text-xs font-semibold mb-2 text-foreground">Fechas y Sesiones Específicas:</h4>
+                    <div className="grid gap-2 grid-cols-1 sm:grid-cols-2">
+                      {event_item.sessions.map(s => (
+                        <div key={s.id} className="bg-muted/50 rounded-md p-2.5 text-xs border border-border/30">
+                          <strong className="text-primary">{s.type}</strong>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-muted-foreground">
+                            <CalendarDays className="w-3.5 h-3.5" /> 
+                            {s.date ? format(parseISO(s.date), "dd/MM/yyyy") : "Sin fecha"}
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1 text-muted-foreground">
+                            <Clock className="w-3.5 h-3.5" /> 
+                            {s.startTime && s.endTime ? `${s.startTime} - ${s.endTime}` : (s.startTime || s.endTime || "Sin hora")}
+                          </div>
+                          {s.location && (
+                            <div className="flex items-center gap-1.5 mt-1 text-muted-foreground">
+                              <MapPin className="w-3.5 h-3.5" /> 
+                              <span className="line-clamp-1">{s.location}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
               
               <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
