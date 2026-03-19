@@ -12,6 +12,7 @@ const Footer = () => (
         <span className="ml-1 font-serif text-sm text-neutral-400">/ GradFrame</span>
         <div className="mt-4 flex justify-center gap-6">
           {[
+            { name: "Facebook", href: "https://www.facebook.com/share/1LFTCjk2yd/?mibextid=wwXIfr" },
             { name: "Instagram", href: "https://www.instagram.com/gradframe.mx" },
             { name: "TikTok", href: "https://www.tiktok.com/@gradframe.mx" },
           ].map((social) => (

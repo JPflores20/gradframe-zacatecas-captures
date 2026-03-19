@@ -8,23 +8,16 @@ import Testimonios from '@/components/testimonios';
 import FAQ from '@/components/f_a_q';
 import Location from '@/components/location';
 import Footer from '@/components/footer';
-import FilmStripSeparator from '@/components/film_strip_divider';
+
 import { motion } from 'framer-motion';
 
 const Index = () => (
   <div className="overflow-x-hidden">
     <Navbar />
     <Hero />
-    
-    <FilmStripSeparator rotation="-3deg" direction={1} className="-mt-12 mb-12" />
-    
     <MainPackage />
     
-    <FilmStripSeparator rotation="2deg" direction={-1} className="my-16" />
-    
     <SpecialServices />
-    
-    <FilmStripSeparator rotation="-2deg" direction={1} className="my-16" />
     
     <BookingProcess />
 
@@ -42,8 +35,6 @@ const Index = () => (
         className="w-full h-full object-cover object-[center_60%] hover:scale-105 transition-transform duration-1000" 
       />
     </motion.div>
-    
-    <FilmStripSeparator rotation="3deg" direction={-1} className="my-16" />
     
     <FAQ />
     <Location />

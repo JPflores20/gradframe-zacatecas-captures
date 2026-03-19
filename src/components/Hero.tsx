@@ -94,31 +94,15 @@ const Hero = () => (
           animate="show"
           className="mt-8 font-serif text-4xl font-light leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl drop-shadow-sm flex flex-wrap justify-center items-center"
         >
-          {welcome_text.split("").map((letter, index) => {
-            if (letter === "G" && welcome_text.substring(index, index + 9) === "GRADFRAME") {
-                return (
-                    <motion.span 
-                        key={index} 
-                        variants={typing_letter_variants}
-                        className="italic font-normal bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-600 inline-block mr-1"
-                    >
-                        GRADFRAME
-                    </motion.span>
-                );
-            } else if (index > welcome_text.indexOf("GRADFRAME") && index < welcome_text.indexOf("GRADFRAME") + 9) {
-                return null; // Omitir las letras de GRADFRAME
-            } else {
-                return (
-                    <motion.span 
-                        key={index} 
-                        variants={typing_letter_variants}
-                        className="inline-block"
-                    >
-                        {letter === " " ? "\u00A0" : letter} {/* Manejar espacios */}
-                    </motion.span>
-                );
-            }
-          })}
+          {welcome_text.split("").map((letter, index) => (
+            <motion.span 
+              key={index} 
+              variants={typing_letter_variants}
+              className="inline-block"
+            >
+              {letter === " " ? "\u00A0" : letter} {/* Manejar espacios */}
+            </motion.span>
+          ))}
           {/* Cursor parpadeante */}
           <motion.span
             animate={{ opacity: [1, 0] }}
