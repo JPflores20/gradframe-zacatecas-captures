@@ -23,9 +23,6 @@ export const SUCCESS_REGISTRATION_DESC = "Tus datos han sido guardados para este
 export const SUCCESS_LOGIN = "Login exitoso.";
 export const SUCCESS_LOGOUT = "Sesión cerrada.";
 
-// Credenciales
-export const TEST_ADMIN_EMAIL = "admin@gradframe.mx";
-export const TEST_ADMIN_PASSWORD = "admin";
 
 // Constantes misceláneas
 export const REQUIRED_CODE_LENGTH = 6;

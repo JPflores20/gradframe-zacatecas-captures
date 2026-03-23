@@ -21,13 +21,9 @@ const MainPackage = () => (
         transition={{ duration: 0.6 }}
         className="text-center mb-14"
       >
-        <span className="text-primary font-semibold tracking-wider uppercase text-sm mb-2 block">Descubre nuestras opciones</span>
         <h2 className="font-serif text-3xl font-bold text-foreground sm:text-4xl md:text-5xl">
-          Tipos de Sesión
+          Descubre nuestros paquetes
         </h2>
-        <p className="mx-auto mt-4 max-w-xl text-muted-foreground text-lg">
-          Elige la sesión que mejor se adapte a tu graduación. Desliza para ver todas las opciones disponibles.
-        </p>
       </motion.div>
 
       <PackageCarousel />

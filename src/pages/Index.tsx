@@ -1,7 +1,6 @@
 import Navbar from '@/components/navbar';
 import Hero from '@/components/hero';
 import MainPackage from '@/components/main_package';
-import SpecialServices from '@/components/special_services';
 import BookingProcess from '@/components/booking_process';
 import AboutGradframe from '@/components/about_gradframe';
 import Testimonios from '@/components/testimonios';
@@ -16,8 +15,6 @@ const Index = () => (
     <Navbar />
     <Hero />
     <MainPackage />
-    
-    <SpecialServices />
     
     <BookingProcess />
 

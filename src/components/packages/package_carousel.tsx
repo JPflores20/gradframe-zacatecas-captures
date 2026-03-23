@@ -33,7 +33,7 @@ export const PackageCarousel = () => {
       {/* Contenedor tipo Carrete (Scroll Horizontal) */}
       <div 
         ref={scrollRef}
-        className="flex overflow-x-auto pb-12 pt-4 snap-x snap-mandatory gap-6 px-4 md:px-12 items-center lg:justify-start scroll-smooth"
+        className="flex overflow-x-auto pb-12 pt-4 snap-x snap-mandatory gap-6 px-4 md:px-12 items-center justify-center scroll-smooth"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
       >
         {session_types.map((item, i) => {

@@ -6,10 +6,12 @@ import { getAuth } from "firebase/auth";
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDummyKeyReplaceMe",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "gradframe-28d19.firebaseapp.com",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://gradframe-28d19-default-rtdb.firebaseio.com",
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "gradframe-28d19",
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "gradframe-28d19.firebasestorage.app",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "123456789",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789:web:dummy"
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:123456789:web:dummy",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-dummy-id"
 };
 
 // Initialize Firebase

@@ -82,9 +82,9 @@ const Hero = () => (
           variants={item_variants}
           whileHover={{ scale: 1.05, rotate: -2 }}
           transition={{ type: "spring", stiffness: 300 }}
-          src="/GF_logo.avif"
+          src="/gradframe.PNG"
           alt="GradFrame Logo"
-          className="mx-auto mt-6 h-20 w-auto object-contain sm:h-24 md:h-28 drop-shadow-xl cursor-pointer"
+          className="mx-auto mt-6 h-32 w-auto object-contain sm:h-40 md:h-48 drop-shadow-xl cursor-pointer"
         />
 
         {/* Título con efecto de máquina de escribir movido debajo del logo */}
@@ -94,14 +94,21 @@ const Hero = () => (
           animate="show"
           className="mt-8 font-serif text-4xl font-light leading-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl drop-shadow-sm flex flex-wrap justify-center items-center"
         >
-          {welcome_text.split("").map((letter, index) => (
-            <motion.span 
-              key={index} 
-              variants={typing_letter_variants}
-              className="inline-block"
-            >
-              {letter === " " ? "\u00A0" : letter} {/* Manejar espacios */}
-            </motion.span>
+          {welcome_text.split(" ").map((word, wordIndex, array) => (
+            <span key={wordIndex} className="inline-flex whitespace-nowrap">
+              {word.split("").map((letter, letterIndex) => (
+                <motion.span 
+                  key={letterIndex} 
+                  variants={typing_letter_variants}
+                  className="inline-block"
+                >
+                  {letter}
+                </motion.span>
+              ))}
+              {wordIndex !== array.length - 1 && (
+                <span className="inline-block">&nbsp;</span>
+              )}
+            </span>
           ))}
           {/* Cursor parpadeante */}
           <motion.span
@@ -124,34 +131,19 @@ const Hero = () => (
             size="lg"
             className="px-10 py-6 rounded-full text-sm font-semibold uppercase tracking-wider shadow-lg hover:shadow-primary/25 transition-all duration-300 hover:-translate-y-1"
           >
-            <a href="#paquetes">Ver Paquetes</a>
+            <a 
+              href="https://wa.me/5215646831101?text=Hola%2C%20quisiera%20recibir%20m%C3%A1s%20informaci%C3%B3n%20para%20cotizar%20mi%20evento"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Cotiza tu evento
+            </a>
           </Button>
         </motion.div>
       </motion.div>
     </div>
 
-    {/* Imagen principal con efecto parallax suave y flotación */}
-    <motion.div
-      className="relative z-10 mx-auto mt-16 w-full max-w-5xl px-4"
-      initial={{ opacity: 0, y: 60 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1, delay: 0.6, ease: "easeOut" }}
-    >
-      <motion.div 
-        animate={{ y: [0, -10, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-        className="overflow-hidden rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] ring-1 ring-white/10 group cursor-pointer"
-      >
-        <motion.img
-          whileHover={{ scale: 1.03 }}
-          transition={{ duration: 0.5 }}
-          src="/Graduados1.avif"
-          alt="Graduados celebrando"
-          className="h-auto w-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-      </motion.div>
-    </motion.div>
+
   </section>
 );
 

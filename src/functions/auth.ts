@@ -1,21 +1,28 @@
-import { LOCAL_STORAGE_ADMIN_AUTH_KEY, TEST_ADMIN_EMAIL, TEST_ADMIN_PASSWORD } from "@/utils/constants";
+import { LOCAL_STORAGE_ADMIN_AUTH_KEY } from "@/utils/constants";
+import { auth } from "@/lib/firebase";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 
 export const login_admin = async (email_input: string, password_input: string): Promise<boolean> => {
-  // Simulación de validación en servidor
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const is_valid = email_input === TEST_ADMIN_EMAIL && password_input === TEST_ADMIN_PASSWORD;
-      
-      if (is_valid) {
-        localStorage.setItem(LOCAL_STORAGE_ADMIN_AUTH_KEY, "true");
-      }
-      
-      resolve(is_valid);
-    }, 800);
-  });
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email_input, password_input);
+    if (userCredential.user) {
+      localStorage.setItem(LOCAL_STORAGE_ADMIN_AUTH_KEY, "true");
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Error during Firebase login:", error);
+    return false;
+  }
 };
 
-export const logout_admin = (): void => {
+export const logout_admin = async (): Promise<void> => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Error during Firebase logout:", error);
+  }
+  // We keep this sync operation to not break the synchronous routers checking localStorage
   localStorage.removeItem(LOCAL_STORAGE_ADMIN_AUTH_KEY);
 };
 

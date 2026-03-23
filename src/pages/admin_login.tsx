@@ -7,13 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { toast } from "sonner";
 import Navbar from '@/components/navbar';
 import Footer from '@/components/footer';
-import { Lock } from "lucide-react";
+import { Lock, Eye, EyeOff } from "lucide-react";
 import { login_admin } from "@/functions/auth";
 import { ERROR_INVALID_CREDENTIALS, SUCCESS_LOGIN } from "@/utils/constants";
 
 const AdminLogin = () => {
   const [email_input, set_email_input] = useState("");
   const [password_input, set_password_input] = useState("");
+  const [show_password, set_show_password] = useState(false);
   const [is_loading, set_is_loading] = useState(false);
   const navigation_hook = useNavigate();
 
@@ -59,7 +60,7 @@ const AdminLogin = () => {
                 <Input 
                   id="email"
                   type="email"
-                  placeholder="ej. admin@gradframe.mx" 
+                  placeholder="ej. correo@ejemplo.com" 
                   value={email_input}
                   onChange={(event) => set_email_input(event.target.value)}
                   required
@@ -67,13 +68,24 @@ const AdminLogin = () => {
               </div>
               <div className="space-y-2 text-left">
                 <Label htmlFor="password">Contraseña</Label>
-                <Input 
-                  id="password"
-                  type="password"
-                  value={password_input}
-                  onChange={(event) => set_password_input(event.target.value)}
-                  required
-                />
+                <div className="relative">
+                  <Input 
+                    id="password"
+                    type={show_password ? "text" : "password"}
+                    value={password_input}
+                    onChange={(event) => set_password_input(event.target.value)}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => set_show_password(!show_password)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                    aria-label={show_password ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  >
+                    {show_password ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
               <div className="pt-2">
                 <Button type="submit" className="w-full" disabled={is_loading}>

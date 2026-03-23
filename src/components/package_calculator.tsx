@@ -34,13 +34,15 @@ export const PackageCalculator = ({ onClose }: PackageCalculatorProps) => {
   const [selected_frame, set_selected_frame] = useState<string>("Sin cuadro");
   const [needs_toga, set_needs_toga] = useState<boolean>(false);
   const [needs_estola, set_needs_estola] = useState<boolean>(false);
+  const [needs_printed_photos, set_needs_printed_photos] = useState<boolean>(false);
 
   const session_cost = session_prices[selected_session] || 0;
   const frame_cost = frame_prices[selected_frame] || 0;
   const toga_cost = needs_toga ? 150 : 0;
   const estola_cost = needs_estola ? 450 : 0;
+  const printed_photos_cost = needs_printed_photos ? 320 : 0;
 
-  const total_cost = session_cost + frame_cost + toga_cost + estola_cost;
+  const total_cost = session_cost + frame_cost + toga_cost + estola_cost + printed_photos_cost;
 
   const format_currency = (amount: number) => 
     amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
@@ -120,7 +122,6 @@ export const PackageCalculator = ({ onClose }: PackageCalculatorProps) => {
               </div>
               <span className="text-muted-foreground text-sm font-medium">+{format_currency(150)}</span>
             </div>
-            
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Checkbox 
@@ -132,6 +133,19 @@ export const PackageCalculator = ({ onClose }: PackageCalculatorProps) => {
                 <Label htmlFor="estola" className="cursor-pointer text-sm">Estola Personalizada</Label>
               </div>
               <span className="text-muted-foreground text-sm font-medium">+{format_currency(450)}</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="printed_photos" 
+                  checked={needs_printed_photos} 
+                  onCheckedChange={(checked) => set_needs_printed_photos(checked as boolean)} 
+                  className="h-4 w-4"
+                />
+                <Label htmlFor="printed_photos" className="cursor-pointer text-sm">30 Fotos Impresas</Label>
+              </div>
+              <span className="text-muted-foreground text-sm font-medium">+{format_currency(320)}</span>
             </div>
           </div>
         </div>
