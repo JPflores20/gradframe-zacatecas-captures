@@ -13,6 +13,10 @@ interface PackageDetailsProps {
   set_needs_stole_and_cap: (value: boolean) => void;
   needs_custom_stole: boolean;
   set_needs_custom_stole: (value: boolean) => void;
+  fotos_titulo_option: string;
+  set_fotos_titulo_option: (value: string) => void;
+  needs_printed_photos: boolean;
+  set_needs_printed_photos: (value: boolean) => void;
   custom_stole_text: string;
   set_custom_stole_text: (value: string) => void;
   show_errors: boolean;
@@ -27,6 +31,10 @@ export const PackageDetailsSection = ({
   set_needs_stole_and_cap,
   needs_custom_stole,
   set_needs_custom_stole,
+  fotos_titulo_option,
+  set_fotos_titulo_option,
+  needs_printed_photos,
+  set_needs_printed_photos,
   custom_stole_text,
   set_custom_stole_text,
   show_errors
@@ -165,6 +173,30 @@ export const PackageDetailsSection = ({
             <Label htmlFor="customStole" className="font-medium cursor-pointer">
               Estola Personalizada
             </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="printedPhotos" 
+              checked={needs_printed_photos} 
+              onCheckedChange={(checked) => set_needs_printed_photos(checked as boolean)} 
+            />
+            <Label htmlFor="printedPhotos" className="font-medium cursor-pointer">
+              30 Fotos Impresas ($320)
+            </Label>
+          </div>
+          <div className="space-y-2 mt-4 pt-2 border-t">
+            <Label htmlFor="fotosTituloOption" className="font-medium">Fotos de Título</Label>
+            <Select value={fotos_titulo_option} onValueChange={set_fotos_titulo_option}>
+              <SelectTrigger id="fotosTituloOption">
+                <SelectValue placeholder="Selecciona opción de fotos de título" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="No">No requeridas</SelectItem>
+                <SelectItem value="UAZ">UAZ ($350)</SelectItem>
+                <SelectItem value="ITZ">ITZ ($450)</SelectItem>
+                <SelectItem value="Otras universidades">Otras universidades ($580)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
         {custom_stole_input}

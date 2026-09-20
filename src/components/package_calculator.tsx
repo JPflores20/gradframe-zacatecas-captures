@@ -4,7 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button"; // Importamos Button
-import { Calculator, DollarSign, X } from "lucide-react"; // Importamos el icono X
+import { Calculator, DollarSign, X } from "lucide-react"; 
+import { FOTOS_TITULO_PRICES, PRICE_FOTOS_IMPRESAS } from "@/utils/constants";
 
 const session_prices: Record<string, number> = {
   "Sesión completa": 1700,
@@ -35,14 +36,16 @@ export const PackageCalculator = ({ onClose }: PackageCalculatorProps) => {
   const [needs_toga, set_needs_toga] = useState<boolean>(false);
   const [needs_estola, set_needs_estola] = useState<boolean>(false);
   const [needs_printed_photos, set_needs_printed_photos] = useState<boolean>(false);
+  const [fotos_titulo_option, set_fotos_titulo_option] = useState<string>("No");
 
   const session_cost = session_prices[selected_session] || 0;
   const frame_cost = frame_prices[selected_frame] || 0;
   const toga_cost = needs_toga ? 150 : 0;
   const estola_cost = needs_estola ? 450 : 0;
-  const printed_photos_cost = needs_printed_photos ? 320 : 0;
+  const printed_photos_cost = needs_printed_photos ? PRICE_FOTOS_IMPRESAS : 0;
+  const fotos_titulo_cost = FOTOS_TITULO_PRICES[fotos_titulo_option] || 0;
 
-  const total_cost = session_cost + frame_cost + toga_cost + estola_cost + printed_photos_cost;
+  const total_cost = session_cost + frame_cost + toga_cost + estola_cost + printed_photos_cost + fotos_titulo_cost;
 
   const format_currency = (amount: number) => 
     amount.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
@@ -135,17 +138,39 @@ export const PackageCalculator = ({ onClose }: PackageCalculatorProps) => {
               <span className="text-muted-foreground text-sm font-medium">+{format_currency(450)}</span>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Checkbox 
-                  id="printed_photos" 
-                  checked={needs_printed_photos} 
-                  onCheckedChange={(checked) => set_needs_printed_photos(checked as boolean)} 
-                  className="h-4 w-4"
-                />
-                <Label htmlFor="printed_photos" className="cursor-pointer text-sm">30 Fotos Impresas</Label>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="printed_photos" 
+                    checked={needs_printed_photos} 
+                    onCheckedChange={(checked) => set_needs_printed_photos(checked as boolean)} 
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="printed_photos" className="cursor-pointer text-sm">30 Fotos Impresas</Label>
+                </div>
+                <span className="text-muted-foreground text-sm font-medium">+{format_currency(PRICE_FOTOS_IMPRESAS)}</span>
               </div>
-              <span className="text-muted-foreground text-sm font-medium">+{format_currency(320)}</span>
+
+              <div className="space-y-2 mt-2 pt-3 border-t border-muted/50">
+                <div className="flex items-center justify-between mb-1">
+                  <Label htmlFor="fotos_titulo" className="text-sm font-medium">Fotos de Título</Label>
+                  <span className="text-muted-foreground text-sm font-medium">
+                    +{format_currency(fotos_titulo_cost)}
+                  </span>
+                </div>
+                <Select value={fotos_titulo_option} onValueChange={set_fotos_titulo_option}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Selecciona opción" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="No">No requeridas</SelectItem>
+                    <SelectItem value="UAZ">UAZ (+{format_currency(FOTOS_TITULO_PRICES["UAZ"])})</SelectItem>
+                    <SelectItem value="ITZ">ITZ (+{format_currency(FOTOS_TITULO_PRICES["ITZ"])})</SelectItem>
+                    <SelectItem value="Otras universidades">Otras universidades (+{format_currency(FOTOS_TITULO_PRICES["Otras universidades"])})</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         </div>

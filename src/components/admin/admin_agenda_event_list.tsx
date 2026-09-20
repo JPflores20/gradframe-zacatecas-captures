@@ -11,8 +11,18 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { AdminRegistrationsDialog } from "./admin_registrations_dialog";
+import { 
+  SESSION_PRICES, 
+  FRAME_PRICES, 
+  PRICE_TOGA_BIRRETE, 
+  PRICE_ESTOLA_PERSONALIZADA, 
+  FOTOS_TITULO_PRICES,
+  PRICE_FOTOS_IMPRESAS
+} from "@/utils/constants";
 import {
   AlertDialog,
+// ... (rest of imports)
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
@@ -142,34 +152,39 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
 
       const tableColumn = [
         "Nombre", "Teléfono", "Estatura", "Paquete", "Cuadro", 
-        "Toga/Birrete", "Estola", "Costo Total", "Anticipo (50%)"
+        "Toga/Birrete", "Estola", "Fotos Impresas", "Fotos Título", "Costo Total", "Anticipo", "Restante"
       ];
       
       let gran_total = 0;
       let gran_anticipo = 0;
+      let gran_restante = 0;
       
       const tableRows = registrations.map(reg => {
         let total = 0;
         
-        if (reg.photo_package === "Sesión completa") total += 1700;
-        else if (reg.photo_package === "Sesión temática") total += 1200;
-        else if (reg.photo_package === "Sesión de gala") total += 1200;
-        else if (reg.photo_package === "Sesión familiar") total += 1500;
+        if (reg.total_cost !== undefined) {
+          total = reg.total_cost;
+        } else {
+          if (reg.photo_package) total += SESSION_PRICES[reg.photo_package] || 0;
+          if (reg.frame_style) total += FRAME_PRICES[reg.frame_style] || 0;
+          if (reg.stole_and_cap) total += PRICE_TOGA_BIRRETE;
+          if (reg.custom_stole && reg.custom_stole !== "No requerida") total += PRICE_ESTOLA_PERSONALIZADA;
+          
+          if (typeof reg.fotos_titulo === "string") {
+            total += FOTOS_TITULO_PRICES[reg.fotos_titulo] || 0;
+          } else if (reg.fotos_titulo === true) {
+            total += 350;
+          }
 
-        if (reg.stole_and_cap) total += 150;
-        if (reg.custom_stole) total += 450;
-        
-        if (reg.frame_style === "CUADRO GRANDE F1") total += 2200;
-        else if (reg.frame_style === "CUADRO PEQUEÑO F2") total += 1400;
-        else if (reg.frame_style === "CUADRO GRANDE MDF") total += 1700;
-        else if (reg.frame_style === "CUADRO PEQUEÑO MDF") total += 1100;
-        else if (reg.frame_style === "CUADRO GRANDE MINIMALISTA") total += 1200;
-        else if (reg.frame_style === "CUADRO PEQUEÑO MINIMALISTA") total += 900;
+          if (reg.printed_photos) total += PRICE_FOTOS_IMPRESAS;
+        }
 
-        const anticipo = total / 2;
+        const anticipo = reg.anticipo !== undefined ? reg.anticipo : total / 2;
+        const restante = total - anticipo;
 
         gran_total += total;
         gran_anticipo += anticipo;
+        gran_restante += restante;
 
         return [
           reg.name,
@@ -178,9 +193,12 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
           reg.photo_package,
           reg.frame_style,
           reg.stole_and_cap ? "Sí" : "No",
-          reg.custom_stole || "No",
+          reg.custom_stole && reg.custom_stole !== "No requerida" ? reg.custom_stole : "No",
+          reg.printed_photos ? "Sí" : "No",
+          typeof reg.fotos_titulo === "string" && reg.fotos_titulo !== "No" ? reg.fotos_titulo : (reg.fotos_titulo === true ? "UAZ" : "No"),
           format_currency(total),
-          format_currency(anticipo)
+          format_currency(anticipo),
+          format_currency(restante)
         ];
       });
 
@@ -188,9 +206,10 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
         head: [tableColumn],
         body: tableRows,
         foot: [[
-          { content: 'TOTALES:', colSpan: 7, styles: { halign: 'right', fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
+          { content: 'TOTALES:', colSpan: 9, styles: { halign: 'right', fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
           { content: format_currency(gran_total), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
-          { content: format_currency(gran_anticipo), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } }
+          { content: format_currency(gran_anticipo), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } },
+          { content: format_currency(gran_restante), styles: { fillColor: [220, 38, 38], textColor: 255, fontStyle: 'bold' } }
         ]],
         startY: 45,
         theme: 'grid',
@@ -472,6 +491,8 @@ export const AdminAgendaEventList = ({ is_loading, selected_events }: EventListP
               </div>
               
               <div className="flex flex-wrap sm:flex-nowrap gap-2 w-full lg:w-auto mt-2 lg:mt-0">
+                <AdminRegistrationsDialog event_id={event_item.id!} event_title={event_item.title} />
+                
                 {/* --- NUEVO BOTÓN DE GOOGLE CALENDAR --- */}
                 <Button variant="outline" size="icon" asChild title="Añadir a Google Calendar">
                   <a href={get_google_calendar_url(event_item)} target="_blank" rel="noopener noreferrer">

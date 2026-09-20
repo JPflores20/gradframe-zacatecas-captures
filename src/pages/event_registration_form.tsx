@@ -22,22 +22,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const session_prices: Record<string, number> = {
-  "Sesión completa": 1700,
-  "Sesión temática": 1200,
-  "Sesión de gala": 1200,
-  "Sesión familiar": 1500,
-};
-
-const frame_prices: Record<string, number> = {
-  "Sin cuadro": 0,
-  "CUADRO GRANDE F1": 2200,
-  "CUADRO PEQUEÑO F2": 1400,
-  "CUADRO GRANDE MDF": 1700,
-  "CUADRO PEQUEÑO MDF": 1100,
-  "CUADRO GRANDE MINIMALISTA": 1200,
-  "CUADRO PEQUEÑO MINIMALISTA": 900,
-};
+import { 
+  SESSION_PRICES, 
+  FRAME_PRICES, 
+  PRICE_TOGA_BIRRETE, 
+  PRICE_ESTOLA_PERSONALIZADA, 
+  FOTOS_TITULO_PRICES,
+  PRICE_FOTOS_IMPRESAS
+} from "@/utils/constants";
 
 const EventRegistrationForm = () => {
   const {
@@ -73,12 +65,13 @@ const EventRegistrationForm = () => {
     submit_button_text = "Guardando Registro...";
   }
 
-  const session_cost = session_prices[form_state.photo_package] || 0;
-  const frame_cost = frame_prices[form_state.frame_style] || 0;
-  const toga_cost = form_state.needs_stole_and_cap ? 150 : 0;
-  const estola_cost = form_state.needs_custom_stole ? 450 : 0;
-
-  const total_cost = session_cost + frame_cost + toga_cost + estola_cost;
+  const session_cost = SESSION_PRICES[form_state.photo_package] || 0;
+  const frame_cost = FRAME_PRICES[form_state.frame_style] || 0;
+  const toga_cost = form_state.needs_stole_and_cap ? PRICE_TOGA_BIRRETE : 0;
+  const estola_cost = form_state.needs_custom_stole ? PRICE_ESTOLA_PERSONALIZADA : 0;
+  const fotos_titulo_cost = FOTOS_TITULO_PRICES[form_state.fotos_titulo_option] || 0;
+  const printed_photos_cost = form_state.needs_printed_photos ? PRICE_FOTOS_IMPRESAS : 0;
+  const total_cost = session_cost + frame_cost + toga_cost + estola_cost + fotos_titulo_cost + printed_photos_cost;
   const anticipo_cost = total_cost / 2;
 
   const format_currency = (amount: number) => 
@@ -127,7 +120,7 @@ const EventRegistrationForm = () => {
             <CardTitle className="text-2xl">{target_event.title}</CardTitle>
             <CardDescription className="flex items-center gap-2 text-base mt-2">
               <CalendarDays className="w-4 h-4" />
-              {format(parseISO(target_event.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} a las {target_event.time}
+              {format(parseISO(target_event.date), "EEEE d 'de' MMMM, yyyy", { locale: es })} a las {target_event.startTime}
             </CardDescription>
 
             {target_event.deadline && (
@@ -165,6 +158,10 @@ const EventRegistrationForm = () => {
                 set_needs_stole_and_cap={form_state.set_needs_stole_and_cap}
                 needs_custom_stole={form_state.needs_custom_stole}
                 set_needs_custom_stole={form_state.set_needs_custom_stole}
+                fotos_titulo_option={form_state.fotos_titulo_option}
+                set_fotos_titulo_option={form_state.set_fotos_titulo_option}
+                needs_printed_photos={form_state.needs_printed_photos}
+                set_needs_printed_photos={form_state.set_needs_printed_photos}
                 custom_stole_text={form_state.custom_stole_text}
                 set_custom_stole_text={form_state.set_custom_stole_text}
                 show_errors={show_errors}
@@ -182,7 +179,7 @@ const EventRegistrationForm = () => {
                     </div>
                     
                     <div className="flex flex-col items-center sm:items-end w-full sm:w-auto bg-background px-5 py-3 rounded-xl border-2 border-primary/10 shadow-sm">
-                      <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Anticipo (50%)</p>
+                      <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Anticipo</p>
                       <div className="flex items-center gap-1 text-primary">
                         <DollarSign className="h-6 w-6" />
                         <span className="font-serif text-3xl font-bold text-foreground">

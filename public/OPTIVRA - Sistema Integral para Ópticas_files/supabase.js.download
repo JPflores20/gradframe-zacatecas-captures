@@ -1,0 +1,735 @@
+// ============================================================
+// OPTIVRA - Supabase Configuration
+// config/supabase.js
+// ============================================================
+// INSTRUCCIONES:
+// 1. Crear proyecto en https://supabase.com
+// 2. Ejecutar supabase_schema.sql en el SQL Editor
+// 3. Reemplazar SUPABASE_URL y SUPABASE_ANON_KEY con tus credenciales
+// 4. Habilitar Auth > Providers > Email en el dashboard
+// ============================================================
+
+const SUPABASE_URL = 'https://phrbxnpmbeffvkezzfbd.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBocmJ4bnBtYmVmZnZrZXp6ZmJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjkyNjUsImV4cCI6MjA4OTAwNTI2NX0.Vctt4y7cuSI4JIDOUJRbrUR9j_J-wUib1JyYmYgyjZY';
+
+// Importar Supabase client (se carga desde CDN en el HTML)
+// <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// MÓDULO DE AUTENTICACIÓN
+// ============================================================
+const OptiAuth = {
+
+    // Registrar nueva empresa + usuario admin
+    async registrarEmpresa({ nombreOptica, direccion, telefono, emailEmpresa, nombreAdmin, emailAdmin, password }) {
+        try {
+            /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+               ORDEN CORRECTO PARA EVITAR usuarios_id_fkey
+               ─────────────────────────────────────────────────────
+               El trigger on_auth_user_created de Supabase puede crear
+               automáticamente un registro en public.usuarios con
+               empresa_id = NULL cuando se hace auth.signUp().
+               Si después intentamos INSERT en usuarios con el mismo id,
+               choca por PRIMARY KEY duplicada.
+
+               Solución: UPSERT (INSERT ... ON CONFLICT DO UPDATE)
+               en lugar de INSERT puro para el perfil de usuario.
+               Así si el trigger ya lo creó, simplemente actualiza.
+
+               Secuencia garantizada:
+               1. auth.signUp()           → crea auth.users
+               2. INSERT empresas          → devuelve empresa.id
+               3. UPSERT usuarios          → asigna empresa_id al usuario
+               ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+            // ── PASO 1: Crear usuario en Supabase Auth ──────────────
+            const { data: authData, error: authError } = await _sb.auth.signUp({
+                email: emailAdmin,
+                password: password,
+                options: {
+                    data: { nombre: nombreAdmin, empresa: nombreOptica }
+                }
+            });
+            if (authError) throw authError;
+            if (!authData.user) throw new Error('No se pudo crear el usuario. Intenta de nuevo.');
+
+            const userId = authData.user.id;
+
+            // ── Idempotencia: ¿ya terminó el registro antes? ────────
+            const { data: usuarioExistente } = await _sb
+                .from('usuarios')
+                .select('empresa_id')
+                .eq('id', userId)
+                .maybeSingle();
+
+            if (usuarioExistente?.empresa_id) {
+                const { data: empExistente } = await _sb
+                    .from('empresas')
+                    .select('*')
+                    .eq('id', usuarioExistente.empresa_id)
+                    .single();
+                return { success: true, empresa: empExistente, user: authData.user, existing: true };
+            }
+
+            // ── PASO 2: Crear EMPRESA primero ───────────────────────
+            // Email único de empresa (nunca igual al del admin)
+            let emailEmp = emailEmpresa?.trim() || null;
+            if (!emailEmp || emailEmp === emailAdmin) {
+                const slug = nombreOptica.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 20);
+                emailEmp = `empresa_${slug}_${Date.now()}@optivra.internal`;
+            }
+
+            // Calcular fecha de expiración (7 días desde ahora)
+            const fechaExpiracion = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+            const { data: empresa, error: empError } = await _sb
+                .from('empresas')
+                .insert({
+                    nombre_optica: nombreOptica,
+                    direccion:     direccion  || '',
+                    telefono:      telefono   || '',
+                    email:         emailEmp,
+                    plan:          'trial',
+                    activo:        true,
+                    fecha_expiracion: fechaExpiracion,
+                    created_at:    new Date().toISOString()
+                })
+                .select()
+                .single();
+
+            if (empError) {
+                console.error('[registrarEmpresa] Error creando empresa:', empError);
+                throw new Error('No se pudo crear el registro de tu óptica: ' + empError.message);
+            }
+
+            // ── PASO 3: UPSERT usuario (resuelve conflicto con trigger) ──
+            // Si el trigger ya creó el registro con empresa_id=NULL,
+            // este UPSERT lo actualiza con el empresa_id correcto.
+            // Si NO existe aún, lo crea normalmente.
+            const { error: userError } = await _sb
+                .from('usuarios')
+                .upsert({
+                    id:         userId,
+                    empresa_id: empresa.id,
+                    nombre:     nombreAdmin,
+                    email:      emailAdmin,
+                    rol:        'admin',
+                    activo:     true,
+                    created_at: new Date().toISOString()
+                }, {
+                    onConflict:       'id',     // conflicto por PK (id)
+                    ignoreDuplicates: false     // sí actualizar si ya existe
+                });
+
+            if (userError) {
+                console.error('[registrarEmpresa] Error en upsert usuario:', userError);
+                // Si falla el upsert, intentar UPDATE directo
+                const { error: updateError } = await _sb
+                    .from('usuarios')
+                    .update({
+                        empresa_id: empresa.id,
+                        nombre:     nombreAdmin,
+                        rol:        'admin',
+                        activo:     true
+                    })
+                    .eq('id', userId);
+                if (updateError) throw new Error('Error al asignar empresa al usuario: ' + updateError.message);
+            }
+
+            // ── Email de bienvenida personalizado (fire-and-forget) ──
+            try {
+                const _wUrl = 'https://phrbxnpmbeffvkezzfbd.supabase.co/functions/v1/welcome-email';
+                fetch(_wUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,  // requerido por la función
+                        'apikey': SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({
+                        email:   emailAdmin,
+                        nombre:  nombreAdmin || emailAdmin.split('@')[0],
+                        optica:  nombreOptica,
+                        plan:    'trial'
+                    })
+                }).then(r => r.json())
+                  .then(d => console.log('[welcome-email]', d.sent ? '✅ Enviado' : '⚠️ No enviado'))
+                  .catch(e => console.warn('[welcome-email] Error no crítico:', e.message));
+            } catch(e) { /* silencioso */ }
+
+            // ── Email de Guía Maestra / Capacitación (fire-and-forget) ──
+            try {
+                const _tUrl = 'https://phrbxnpmbeffvkezzfbd.supabase.co/functions/v1/send-training';
+                fetch(_tUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+                        'apikey': SUPABASE_ANON_KEY
+                    },
+                    body: JSON.stringify({
+                        type:   'new',
+                        email:  emailAdmin,
+                        nombre: nombreAdmin || emailAdmin.split('@')[0],
+                        optica: nombreOptica
+                    })
+                }).then(r => r.json())
+                  .then(d => console.log('[send-training]', d.sent ? '✅ Guía Maestra enviada' : '⚠️ ' + d.reason))
+                  .catch(e => console.warn('[send-training] No crítico:', e.message));
+            } catch(e) { /* silencioso */ }
+
+            return { success: true, empresa, user: authData.user };
+
+        } catch (error) {
+            console.error('[registrarEmpresa] Error:', error);
+            return { success: false, error: error.message };
+        }
+    },
+
+    // Iniciar sesión
+    async login(email, password) {
+        try {
+            const { data, error } = await _sb.auth.signInWithPassword({ email, password });
+            if (error) throw error;
+            if (!data || !data.user) throw new Error('No se pudo autenticar. Intenta de nuevo.');
+
+            const userId = data.user.id;
+
+            /* ── Obtener perfil — usa maybeSingle para evitar
+               "Cannot coerce to single JSON" cuando hay duplicados ── */
+            const { data: perfiles, error: perfilError } = await _sb
+                .from('usuarios')
+                .select('*, empresas(*)')
+                .eq('id', userId)
+                .limit(1);
+
+            if (perfilError) {
+                console.warn('[login] Error al obtener perfil:', perfilError.message);
+            }
+
+            // Tomar el primer perfil válido (evita crash por duplicados)
+            let perfil = Array.isArray(perfiles) ? perfiles[0] : perfiles;
+
+            // ── AUTO-RECUPERACIÓN: si no hay perfil, intentar crearlo ──
+            if (!perfil) {
+                console.warn('[login] Perfil no encontrado para', userId, '— intentando auto-recuperar');
+                // Buscar si tiene empresa por otro medio
+                const { data: empData } = await _sb
+                    .from('empresas')
+                    .select('*')
+                    .limit(1);
+                const empFallback = Array.isArray(empData) ? empData[0] : empData;
+
+                if (empFallback) {
+                    // Crear perfil mínimo en la tabla usuarios
+                    const { data: nuevoPerfil } = await _sb
+                        .from('usuarios')
+                        .upsert({
+                            id:          userId,
+                            empresa_id:  empFallback.id,
+                            nombre:      data.user.user_metadata?.nombre || email.split('@')[0],
+                            email:       email,
+                            rol:         'admin',
+                            activo:      true,
+                            created_at:  new Date().toISOString()
+                        }, { onConflict: 'id', ignoreDuplicates: false })
+                        .select('*, empresas(*)')
+                        .limit(1);
+                    perfil = Array.isArray(nuevoPerfil) ? nuevoPerfil[0] : nuevoPerfil;
+                }
+            }
+
+            if (!perfil) throw new Error('Perfil de usuario no encontrado. Verifica tu registro o contacta soporte.');
+
+            if (perfil.activo === false) throw new Error('Tu cuenta está desactivada. Contacta al administrador.');
+
+            // Resolver empresa (puede venir como array por el join)
+            let empresa = perfil.empresas;
+            if (Array.isArray(empresa)) empresa = empresa[0];
+
+            // ── FALLBACK empresa: buscar directamente si el join falló ──
+            if (!empresa && perfil.empresa_id) {
+                const { data: empDirect } = await _sb
+                    .from('empresas')
+                    .select('*')
+                    .eq('id', perfil.empresa_id)
+                    .limit(1);
+                empresa = Array.isArray(empDirect) ? empDirect[0] : empDirect;
+            }
+
+            // ── ÚLTIMO RECURSO: empresa mínima funcional ──
+            if (!empresa) {
+                empresa = {
+                    nombre_optica:    data.user.user_metadata?.empresa || 'Mi Óptica',
+                    plan:             'trial',
+                    fecha_expiracion: new Date(Date.now() + 7*86400000).toISOString(),
+                    activo:           true
+                };
+                console.warn('[login] Empresa no encontrada — usando fallback mínimo');
+            }
+
+            const subsActiva = new Date(empresa.fecha_expiracion) > new Date() && empresa.activo !== false;
+
+            // Actualizar último acceso (silencioso — no bloquear si falla)
+            _sb.from('usuarios').update({ ultimo_acceso: new Date().toISOString() })
+               .eq('id', userId).then(() => {}).catch(() => {});
+
+            return {
+                success: true,
+                user: perfil,
+                empresa: empresa,
+                subscripcionActiva: subsActiva,
+                session: data.session
+            };
+        } catch (error) {
+            console.error('[login] Error:', error.message || error);
+            return { success: false, error: error.message || 'Error desconocido' };
+        }
+    },
+
+    // Cerrar sesión
+    async logout() {
+        try {
+            // 1. Marcar logout explícito
+            sessionStorage.setItem('optivra_logout', 'true');
+            
+            // 2. Cerrar sesión en Supabase
+            await _sb.auth.signOut();
+            
+            // 3. Limpiar TODA la sesión
+            sessionStorage.clear();
+            
+            // 4. Limpiar localStorage de Supabase
+            Object.keys(localStorage).forEach(key => {
+                if (key.includes('supabase') || key.includes('sb-')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            
+            // 5. Redirigir sin guardar en historial
+            window.location.replace('landing.html');
+            
+        } catch (err) {
+            console.error('[OptiAuth] Logout error:', err);
+            // Aunque falle, limpiar y redirigir
+            sessionStorage.clear();
+            window.location.replace('landing.html');
+        }
+    },
+
+    // Obtener sesión actual
+    async getSession() {
+        try {
+            const { data: { session } } = await _sb.auth.getSession();
+            if (!session) return null;
+
+            const { data: perfiles } = await _sb
+                .from('usuarios')
+                .select('*, empresas(*)')
+                .eq('id', session.user.id)
+                .limit(1);
+
+            // Tomar primer resultado — evita "coerce to single JSON" por duplicados
+            const perfil = Array.isArray(perfiles) ? perfiles[0] : perfiles;
+            if (!perfil) return null;
+
+            let empresa = perfil.empresas;
+            if (Array.isArray(empresa)) empresa = empresa[0];
+
+            return perfil ? { session, user: perfil, empresa } : null;
+        } catch(e) {
+            console.warn('[getSession] Error:', e.message || e);
+            return null;
+        }
+    },
+
+    // Verificar si la suscripción está activa
+    async verificarSuscripcion() {
+        const sessionData = await this.getSession();
+        if (!sessionData) return { activa: false, redirect: 'login.html' };
+
+        const empresa = sessionData.empresa;
+        const activa = new Date(empresa.fecha_expiracion) > new Date() && empresa.activo;
+
+        if (!activa) return { activa: false, redirect: 'planes.html', empresa };
+        return { activa: true, empresa, user: sessionData.user };
+    },
+
+    // Recuperar contraseña
+    async recuperarPassword(email) {
+        const { error } = await _sb.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin + '/login.html?reset=true'
+        });
+        return error ? { success: false, error: error.message } : { success: true };
+    },
+
+    // Escuchar cambios de autenticación
+    onAuthStateChange(callback) {
+        _sb.auth.onAuthStateChange((event, session) => {
+            callback(event, session);
+        });
+    }
+};
+
+// ============================================================
+// MÓDULO DE DATOS (CRUD genérico con empresa_id)
+// ============================================================
+const OptiData = {
+
+    // Cache del empresa_id
+    _empresaId: null,
+
+    async getEmpresaId() {
+        if (this._empresaId) return this._empresaId;
+        const session = await OptiAuth.getSession();
+        if (session) this._empresaId = session.empresa.id;
+        return this._empresaId;
+    },
+
+    // ---- CLIENTES ----
+    async getClientes(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('clientes').select('*').eq('empresa_id', empresaId).order('nombre');
+        if (filtros.buscar) query = query.ilike('nombre', `%${filtros.buscar}%`);
+        if (filtros.limit) query = query.limit(filtros.limit);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async getCliente(id) {
+        const { data, error } = await _sb.from('clientes').select('*').eq('id', id).single();
+        if (error) throw error;
+        return data;
+    },
+
+    async crearCliente(cliente) {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb.from('clientes').insert({ ...cliente, empresa_id: empresaId }).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async actualizarCliente(id, datos) {
+        const { data, error } = await _sb.from('clientes').update(datos).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async eliminarCliente(id) {
+        const { error } = await _sb.from('clientes').delete().eq('id', id);
+        if (error) throw error;
+    },
+
+    // ---- INVENTARIO ----
+    async getInventario(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('inventario').select('*').eq('empresa_id', empresaId).eq('activo', true).order('producto');
+        if (filtros.categoria) query = query.eq('categoria', filtros.categoria);
+        if (filtros.buscar) query = query.ilike('producto', `%${filtros.buscar}%`);
+        if (filtros.bajoStock) query = query.filter('stock', 'lte', 'stock_minimo');
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async crearProducto(producto) {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb.from('inventario').insert({ ...producto, empresa_id: empresaId }).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async actualizarProducto(id, datos) {
+        const { data, error } = await _sb.from('inventario').update(datos).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async actualizarStock(id, cantidad) {
+        const { data: prod } = await _sb.from('inventario').select('stock').eq('id', id).single();
+        const nuevoStock = (prod?.stock || 0) + cantidad;
+        return this.actualizarProducto(id, { stock: Math.max(0, nuevoStock) });
+    },
+
+    // ---- VENTAS ----
+    async getVentas(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('ventas').select('*, clientes(nombre), usuarios(nombre)').eq('empresa_id', empresaId).order('fecha', { ascending: false });
+        if (filtros.desde) query = query.gte('fecha', filtros.desde);
+        if (filtros.hasta) query = query.lte('fecha', filtros.hasta);
+        if (filtros.estado) query = query.eq('estado', filtros.estado);
+        if (filtros.limit) query = query.limit(filtros.limit);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async crearVenta(venta, detalles) {
+        const empresaId = await this.getEmpresaId();
+        const session = await OptiAuth.getSession();
+
+        // Generar folio
+        const { data: folioData } = await _sb.rpc('generate_folio', { prefix: 'VTA', tabla: 'ventas', empresa: empresaId });
+
+        const { data: nuevaVenta, error } = await _sb.from('ventas').insert({
+            ...venta,
+            empresa_id: empresaId,
+            usuario_id: session.user.id,
+            folio: folioData
+        }).select().single();
+        if (error) throw error;
+
+        // Insertar detalles
+        if (detalles && detalles.length > 0) {
+            const detallesConVenta = detalles.map(d => ({ ...d, venta_id: nuevaVenta.id }));
+            await _sb.from('detalle_ventas').insert(detallesConVenta);
+
+            // Actualizar stock
+            for (const det of detalles) {
+                if (det.producto_id) {
+                    await this.actualizarStock(det.producto_id, -det.cantidad);
+                }
+            }
+        }
+        return nuevaVenta;
+    },
+
+    // ---- ÓRDENES DE TRABAJO ----
+    async getOrdenes(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('ordenes_trabajo').select('*, clientes(nombre)').eq('empresa_id', empresaId).order('fecha_pedido', { ascending: false });
+        if (filtros.estado) query = query.eq('estado', filtros.estado);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async crearOrden(orden) {
+        const empresaId = await this.getEmpresaId();
+        const session = await OptiAuth.getSession();
+        const { data: folioData } = await _sb.rpc('generate_folio', { prefix: 'OT', tabla: 'ordenes_trabajo', empresa: empresaId });
+        const { data, error } = await _sb.from('ordenes_trabajo').insert({
+            ...orden, empresa_id: empresaId, usuario_id: session.user.id, folio: folioData
+        }).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async actualizarOrden(id, datos) {
+        const { data, error } = await _sb.from('ordenes_trabajo').update(datos).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    // ---- AGENDA ----
+    async getAgenda(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('agenda').select('*, clientes(nombre, telefono)').eq('empresa_id', empresaId).order('fecha').order('hora');
+        if (filtros.fecha) query = query.eq('fecha', filtros.fecha);
+        if (filtros.desde && filtros.hasta) query = query.gte('fecha', filtros.desde).lte('fecha', filtros.hasta);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async crearCita(cita) {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb.from('agenda').insert({ ...cita, empresa_id: empresaId }).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    async actualizarCita(id, datos) {
+        const { data, error } = await _sb.from('agenda').update(datos).eq('id', id).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    // ---- EXPEDIENTES ----
+    async getExpedientes(clienteId) {
+        const { data, error } = await _sb.from('expedientes').select('*, usuarios(nombre)').eq('cliente_id', clienteId).order('fecha_examen', { ascending: false });
+        if (error) throw error;
+        return data;
+    },
+
+    async crearExpediente(expediente) {
+        const empresaId = await this.getEmpresaId();
+        const session = await OptiAuth.getSession();
+        const { data, error } = await _sb.from('expedientes').insert({
+            ...expediente, empresa_id: empresaId, usuario_id: session.user.id
+        }).select().single();
+        if (error) throw error;
+        return data;
+    },
+
+    // ---- COTIZACIONES ----
+    async getCotizaciones(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        let query = _sb.from('cotizaciones').select('*, clientes(nombre)').eq('empresa_id', empresaId).order('fecha', { ascending: false });
+        if (filtros.estado) query = query.eq('estado', filtros.estado);
+        const { data, error } = await query;
+        if (error) throw error;
+        return data;
+    },
+
+    async crearCotizacion(cotizacion, detalles) {
+        const empresaId = await this.getEmpresaId();
+        const session = await OptiAuth.getSession();
+        const { data: folioData } = await _sb.rpc('generate_folio', { prefix: 'COT', tabla: 'cotizaciones', empresa: empresaId });
+        const { data, error } = await _sb.from('cotizaciones').insert({
+            ...cotizacion, empresa_id: empresaId, usuario_id: session.user.id, folio: folioData
+        }).select().single();
+        if (error) throw error;
+        if (detalles?.length) {
+            await _sb.from('detalle_cotizaciones').insert(detalles.map(d => ({ ...d, cotizacion_id: data.id })));
+        }
+        return data;
+    },
+
+    // ---- COMPRAS ----
+    async getCompras(filtros = {}) {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb.from('compras').select('*').eq('empresa_id', empresaId).order('fecha', { ascending: false });
+        if (error) throw error;
+        return data;
+    },
+
+    async crearCompra(compra, detalles) {
+        const empresaId = await this.getEmpresaId();
+        const { data: folioData } = await _sb.rpc('generate_folio', { prefix: 'CMP', tabla: 'compras', empresa: empresaId });
+        const { data, error } = await _sb.from('compras').insert({
+            ...compra, empresa_id: empresaId, folio: folioData
+        }).select().single();
+        if (error) throw error;
+        if (detalles?.length) {
+            await _sb.from('detalle_compras').insert(detalles.map(d => ({ ...d, compra_id: data.id })));
+            for (const det of detalles) {
+                if (det.producto_id) await this.actualizarStock(det.producto_id, det.cantidad);
+            }
+        }
+        return data;
+    },
+
+    // ---- DASHBOARD ----
+    async getDashboard() {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb.from('vista_dashboard').select('*').eq('empresa_id', empresaId).single();
+        if (error) throw error;
+        return data;
+    },
+
+    // ---- REPORTES ----
+    async getReporteVentas(desde, hasta) {
+        const empresaId = await this.getEmpresaId();
+        const { data, error } = await _sb
+            .from('ventas')
+            .select('*, detalle_ventas(*, inventario(producto, categoria))')
+            .eq('empresa_id', empresaId)
+            .gte('fecha', desde)
+            .lte('fecha', hasta)
+            .eq('estado', 'completada')
+            .order('fecha');
+        if (error) throw error;
+        return data;
+    }
+};
+
+// ============================================================
+// MÓDULO REALTIME
+// ============================================================
+const OptiRealtime = {
+
+    _channels: [],
+
+    async init() {
+        const empresaId = await OptiData.getEmpresaId();
+        if (!empresaId) return;
+
+        // Canal de ventas
+        this._subscribe('ventas', empresaId, (payload) => {
+            document.dispatchEvent(new CustomEvent('optivra:venta', { detail: payload }));
+        });
+
+        // Canal de inventario
+        this._subscribe('inventario', empresaId, (payload) => {
+            document.dispatchEvent(new CustomEvent('optivra:inventario', { detail: payload }));
+        });
+
+        // Canal de clientes
+        this._subscribe('clientes', empresaId, (payload) => {
+            document.dispatchEvent(new CustomEvent('optivra:cliente', { detail: payload }));
+        });
+
+        // Canal de agenda
+        this._subscribe('agenda', empresaId, (payload) => {
+            document.dispatchEvent(new CustomEvent('optivra:agenda', { detail: payload }));
+        });
+
+        // Canal de órdenes
+        this._subscribe('ordenes_trabajo', empresaId, (payload) => {
+            document.dispatchEvent(new CustomEvent('optivra:orden', { detail: payload }));
+        });
+
+        console.log('[OPTIVRA Realtime] Canales conectados');
+    },
+
+    _subscribe(tabla, empresaId, callback) {
+        const channel = _sb
+            .channel(`${tabla}_${empresaId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: tabla,
+                filter: `empresa_id=eq.${empresaId}`
+            }, callback)
+            .subscribe();
+
+        this._channels.push(channel);
+    },
+
+    destroy() {
+        this._channels.forEach(ch => _sb.removeChannel(ch));
+        this._channels = [];
+    }
+};
+
+// ============================================================
+// EXPORTAR
+// ============================================================
+window.supabase = _sb;  // ← Exportar como "supabase" (no "supabaseClient")
+window.supabaseClient = _sb;  // ← Mantener por compatibilidad
+window.OptiAuth = OptiAuth;
+window.OptiData = OptiData;
+window.OptiRealtime = OptiRealtime;
+
+// ============================================================
+//  SQL PARA CREAR LA TABLA sync_datos EN SUPABASE
+//  Ejecutar UNA VEZ en el Editor SQL de Supabase:
+// ============================================================
+/*
+CREATE TABLE IF NOT EXISTS sync_datos (
+    empresa_id  UUID        PRIMARY KEY REFERENCES empresas(id) ON DELETE CASCADE,
+    datos       JSONB       NOT NULL DEFAULT '{}',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    version     BIGINT      DEFAULT 0
+);
+
+-- Política RLS: cada empresa solo accede a sus propios datos
+ALTER TABLE sync_datos ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Empresa accede a sus datos"
+    ON sync_datos
+    USING (
+        empresa_id = (
+            SELECT empresa_id FROM usuarios
+            WHERE id = auth.uid()
+            LIMIT 1
+        )
+    );
+
+-- Índice para búsquedas rápidas
+CREATE INDEX IF NOT EXISTS idx_sync_datos_empresa ON sync_datos(empresa_id);
+CREATE INDEX IF NOT EXISTS idx_sync_datos_updated ON sync_datos(updated_at);
+*/

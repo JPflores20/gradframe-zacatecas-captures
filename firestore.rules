@@ -2,10 +2,21 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Permite lectura pública de eventos para que los invitados puedan encontrarlos por código
+    match /events/{eventId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+    
+    // Permite que invitados creen registros, pero solo los admins pueden verlos o gestionarlos
+    match /registrations/{registrationId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+    
+    // Regla por defecto para cualquier otra colección o documento
     match /{document=**} {
-      // Regla equivalente a la solicitada: 
-      // Permitir lectura y escritura hasta el 13 de abril de 2026
-      allow read, write: if request.time < timestamp.date(2026, 4, 13);
+      allow read, write: if request.auth != null;
     }
   }
 }

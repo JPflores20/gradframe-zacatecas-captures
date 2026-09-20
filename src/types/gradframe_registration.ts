@@ -8,6 +8,10 @@ export interface GradframeRegistration {
   photo_package: string;
   stole_and_cap: boolean;
   custom_stole: string;
+  fotos_titulo?: string | boolean;
+  printed_photos?: boolean;
   frame_style: string;
+  total_cost?: number;
+  anticipo?: number;
   created_at: number;
 }

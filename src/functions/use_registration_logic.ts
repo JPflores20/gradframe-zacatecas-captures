@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { GradframeEvent } from "@/types/gradframe_event";
 import { fetch_event_by_code, create_new_registration } from "@/functions/database";
-import { ERROR_MISSING_FIELDS, ERROR_SUBMITTING_REGISTRATION, SUCCESS_REGISTRATION, SUCCESS_REGISTRATION_DESC } from "@/utils/constants";
+import { ERROR_MISSING_FIELDS, ERROR_SUBMITTING_REGISTRATION, SUCCESS_REGISTRATION, SUCCESS_REGISTRATION_DESC, SESSION_PRICES, FRAME_PRICES, PRICE_TOGA_BIRRETE, PRICE_ESTOLA_PERSONALIZADA, FOTOS_TITULO_PRICES, PRICE_FOTOS_IMPRESAS } from "@/utils/constants";
 
 export const use_registration_logic = () => {
   const { code } = useParams<{ code: string }>();
@@ -19,6 +19,8 @@ export const use_registration_logic = () => {
   const [photo_package, set_photo_package] = useState("");
   const [needs_stole_and_cap, set_needs_stole_and_cap] = useState(false);
   const [needs_custom_stole, set_needs_custom_stole] = useState(false);
+  const [fotos_titulo_option, set_fotos_titulo_option] = useState("No");
+  const [needs_printed_photos, set_needs_printed_photos] = useState(false);
   const [custom_stole_text, set_custom_stole_text] = useState("");
   const [frame_style, set_frame_style] = useState("");
 
@@ -64,6 +66,16 @@ export const use_registration_logic = () => {
       final_custom_stole_text = custom_stole_text;
     }
 
+    // Calcular costos
+    const session_cost = SESSION_PRICES[photo_package] || 0;
+    const frame_cost = FRAME_PRICES[frame_style] || 0;
+    const toga_cost = needs_stole_and_cap ? PRICE_TOGA_BIRRETE : 0;
+    const estola_cost = needs_custom_stole ? PRICE_ESTOLA_PERSONALIZADA : 0;
+    const fotos_titulo_cost = FOTOS_TITULO_PRICES[fotos_titulo_option] || 0;
+    const printed_photos_cost = needs_printed_photos ? PRICE_FOTOS_IMPRESAS : 0;
+    const total_cost = session_cost + frame_cost + toga_cost + estola_cost + fotos_titulo_cost + printed_photos_cost;
+    const anticipo = total_cost / 2;
+
     const registration_payload = {
       event_id: target_event.id,
       user_id: "dummy_user_id",
@@ -73,7 +85,11 @@ export const use_registration_logic = () => {
       photo_package: photo_package,
       stole_and_cap: needs_stole_and_cap,
       custom_stole: final_custom_stole_text,
+      fotos_titulo: fotos_titulo_option,
+      printed_photos: needs_printed_photos,
       frame_style: frame_style,
+      total_cost: total_cost,
+      anticipo: anticipo,
     };
 
     const is_success = await create_new_registration(registration_payload);
@@ -108,6 +124,10 @@ export const use_registration_logic = () => {
       set_needs_stole_and_cap,
       needs_custom_stole,
       set_needs_custom_stole,
+      fotos_titulo_option,
+      set_fotos_titulo_option,
+      needs_printed_photos,
+      set_needs_printed_photos,
       custom_stole_text,
       set_custom_stole_text,
       frame_style,

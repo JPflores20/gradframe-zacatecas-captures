@@ -1,0 +1,1942 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║              OPTIVRA BRIDGE — v1.0.0                                    ║
+ * ║              Global Data Bridge · Event Bus Central                      ║
+ * ║                                                                          ║
+ * ║  Arquitectura: Mediador entre los 23 módulos de OPTIVRA                  ║
+ * ║  Reglas de Oro:                                                          ║
+ * ║    1. Transacción Atómica VENTA_COMPLETADA (Mód. 6 + 3 + 7 → rollback)  ║
+ * ║    2. Herencia de Datos sin alucinaciones (Mód. 5 → Mód. 7)             ║
+ * ║    3. Ley de Sucursal — middleware transversal (Mód. 16 → todos)         ║
+ * ║    4. Validación Pre-Timbrado RFC + CP (Mód. 4 → Mód. 12)               ║
+ * ║                                                                          ║
+ * ║  PRINCIPIO CARDINAL: No destruir ninguna función onclick o fetch         ║
+ * ║  existente. Este archivo es 100% aditivo y desacoplado.                  ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ */
+
+;(function(global) {
+    'use strict';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 0 — GUARDIA DE INICIALIZACIÓN ÚNICA
+    // ═══════════════════════════════════════════════════════════════════════
+    if (global.OptivraBridge && global.OptivraBridge.__initialized) {
+        console.warn('[OptivraBridge] Ya está inicializado. Saltando re-inicialización.');
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GUARDIA DE SUPABASE — NO EJECUTAR SI OptiAuth NO ESTÁ DISPONIBLE
+    // ═══════════════════════════════════════════════════════════════════════
+    if (typeof OptiAuth === 'undefined') {
+        console.error('[OptivraBridge] CRÍTICO: OptiAuth no está disponible. Bridge no puede inicializar.');
+        console.error('[OptivraBridge] Verifica que config/supabase.js se cargó correctamente ANTES de optivra-bridge.js');
+        global.OptivraBridge = { __error: true, __initialized: false };
+        return;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // GUARDIA DE DB — NO EJECUTAR SI window.DB NO ESTÁ DISPONIBLE
+    // ═══════════════════════════════════════════════════════════════════════
+    if (typeof window.DB === 'undefined') {
+        console.warn('[OptivraBridge] window.DB aún no está inicializado.');
+        console.warn('[OptivraBridge] Bridge se ejecutará en modo degradado (sin acceso a datos del sistema)');
+        console.warn('[OptivraBridge] Esto es normal si se está cargando después del página principal.');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 1 — GLOBAL STATE
+    // El único depósito de verdad para datos inter-módulo.
+    // Nadie puede leer ni escribir este objeto directamente desde fuera;
+    // se usan los métodos públicos del Bridge.
+    // ═══════════════════════════════════════════════════════════════════════
+    var _state = {
+        // Módulo 5 → Módulos 7 y 2
+        ultimoExamen: null,
+        /*
+         * Estructura esperada de ultimoExamen:
+         * {
+         *   id:         string,
+         *   pacienteId: string,
+         *   od: { esfera, cilindro, eje, add, dip },
+         *   oi: { esfera, cilindro, eje, add, dip },
+         *   dipTotal:   string,
+         *   optometrista: string,
+         *   fecha:      string ISO,
+         *   esGraduado: boolean  // true si tiene al menos un campo de RX distinto de '' y '0'
+         * }
+         */
+
+        // Módulo 16 → todos los módulos
+        sucursalActiva: null,
+        usuarioActivo: null,
+
+        // Módulo 12 — cola de CFDI
+        facturaQueue: [],
+        /*
+         * Estructura de cada item en facturaQueue:
+         * {
+         *   id:         string  (id único de queue),
+         *   ventaId:    string,
+         *   clienteId:  string,
+         *   rfc:        string,
+         *   cp:         string,
+         *   total:      number,
+         *   items:      array,
+         *   fechaEncolada: string ISO,
+         *   estado:     'pendiente' | 'en_proceso' | 'timbrada' | 'error',
+         *   intentos:   number,
+         *   ultimoError: string | null
+         * }
+         */
+
+        // Módulo 3 — snapshot para rollback
+        _rollbackSnapshot: null,
+
+        // Control de eventos en vuelo (anti-doble-disparo)
+        _procesando: false
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 2 — EVENT BUS INTERNO
+    // Sistema de publicación/suscripción para desacoplar módulos.
+    // ═══════════════════════════════════════════════════════════════════════
+    var _listeners = {};
+
+    /**
+     * Suscribe un handler a un evento.
+     * @param {string} evento
+     * @param {function} handler — recibe (payload)
+     * @param {string} [etiqueta] — identificador legible para debug
+     */
+    function _on(evento, handler, etiqueta) {
+        if (typeof handler !== 'function') {
+            console.error('[OptivraBridge] on(): handler debe ser una función. Evento:', evento);
+            return;
+        }
+        if (!_listeners[evento]) _listeners[evento] = [];
+        _listeners[evento].push({ fn: handler, label: etiqueta || '(sin etiqueta)' });
+        console.log('[OptivraBridge] ✅ Suscriptor registrado →', evento, '·', etiqueta || '');
+    }
+
+    /**
+     * Emite un evento a todos sus suscriptores.
+     * Los errores en handlers individuales son capturados sin romper a los demás.
+     * @param {string} evento
+     * @param {*} payload
+     */
+    function _emit(evento, payload) {
+        var handlers = _listeners[evento] || [];
+        if (handlers.length === 0) {
+            console.log('[OptivraBridge] emit:', evento, '(sin suscriptores)');
+            return;
+        }
+        console.log('[OptivraBridge] emit:', evento, '· suscriptores:', handlers.length);
+        handlers.forEach(function(h) {
+            try {
+                h.fn(payload);
+            } catch (e) {
+                console.error('[OptivraBridge] Error en handler "' + h.label + '" para evento "' + evento + '":', e.message || e);
+            }
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 3 — MIDDLEWARE DE SUCURSAL (Regla de Oro #3)
+    // El sucursal_id capturado en el Módulo 16 es la ley transversal.
+    // Este middleware lo inyecta en toda consulta Supabase que lo requiera.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Retorna el sucursal_id activo con prioridad:
+     * 1. _state.sucursalActiva (depositado por el Bridge)
+     * 2. window._optiSucursalActiva (compatibilidad con código existente)
+     * 3. _sessionData.sucursal_id
+     * 4. Fallback 'SUC_MATRIZ' (nunca null para no romper queries)
+     */
+    function _getSucursalId() {
+        if (_state.sucursalActiva) return _state.sucursalActiva;
+
+        // Compatibilidad con variable existente en app.html
+        if (global._optiSucursalActiva) return global._optiSucursalActiva;
+
+        // Desde sesión
+        var sd = global._sessionData || global.sessionData;
+        if (sd && sd.sucursal_id) return sd.sucursal_id;
+        if (sd && sd.empresa && sd.empresa.sucursal_id) return sd.empresa.sucursal_id;
+
+        return 'SUC_MATRIZ';
+    }
+
+    /**
+     * Aplica el filtro de sucursal a una query Supabase ya construida.
+     * Uso: var query = OptivraBridge.injectSucursal(supabase.from('ventas').select('*'));
+     *
+     * IMPORTANTE: Solo aplica si hay sucursal real (no 'SUC_MATRIZ' ficticia en demo).
+     * @param {object} query — Supabase QueryBuilder
+     * @param {string} [campo='sucursal_id'] — nombre del campo en la tabla
+     * @returns {object} query con .eq() aplicado
+     */
+    function _injectSucursal(query, campo) {
+        campo = campo || 'sucursal_id';
+        var sucId = _getSucursalId();
+        if (!sucId || sucId === 'SUC_MATRIZ') {
+            // En modo demo o matriz, no filtrar para no romper la UX
+            console.log('[OptivraBridge] injectSucursal: modo sin filtro (SUC_MATRIZ o vacío)');
+            return query;
+        }
+        return query.eq(campo, sucId);
+    }
+
+    /**
+     * Enriquece un objeto de datos con sucursal_id antes de insertar/actualizar.
+     * @param {object} data
+     * @returns {object} data con sucursal_id añadido
+     */
+    function _enrichConSucursal(data) {
+        var sucId = _getSucursalId();
+        if (sucId && sucId !== 'SUC_MATRIZ') {
+            data.sucursal_id = sucId;
+        }
+        return data;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 4 — DEPOSITADORES DE ESTADO (hooks que llaman los módulos)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Módulo 5 llama esto al final de guardarExamen().
+     * Deposita la refracción en el Global State para que Módulo 7 la consuma.
+     * @param {object} examen — objeto examen completo guardado en DB.examenes
+     */
+    function _depositarExamen(examen) {
+        if (!examen || !examen.id) {
+            console.error('[OptivraBridge] depositarExamen: examen inválido o sin id.', examen);
+            return;
+        }
+
+        // Determinar si es graduado: al menos un campo de RX tiene valor real
+        var esGraduado = _examenEsGraduado(examen);
+
+        _state.ultimoExamen = {
+            id:          examen.id,
+            pacienteId:  examen.pacienteId || null,
+            od: {
+                esfera:   examen.od && examen.od.esfera   ? examen.od.esfera   : '',
+                cilindro: examen.od && examen.od.cilindro ? examen.od.cilindro : '',
+                eje:      examen.od && examen.od.eje      ? examen.od.eje      : '',
+                add:      examen.od && examen.od.add      ? examen.od.add      : '',
+                dip:      examen.od && examen.od.dip      ? examen.od.dip      : ''
+            },
+            oi: {
+                esfera:   examen.oi && examen.oi.esfera   ? examen.oi.esfera   : '',
+                cilindro: examen.oi && examen.oi.cilindro ? examen.oi.cilindro : '',
+                eje:      examen.oi && examen.oi.eje      ? examen.oi.eje      : '',
+                add:      examen.oi && examen.oi.add      ? examen.oi.add      : '',
+                dip:      examen.oi && examen.oi.dip      ? examen.oi.dip      : ''
+            },
+            dipTotal:     examen.dipTotal || '',
+            optometrista: examen.optometrista || '',
+            fecha:        examen.fecha || new Date().toISOString(),
+            esGraduado:   esGraduado
+        };
+
+        console.log('[OptivraBridge] ✅ Examen depositado en Global State →', examen.id,
+            '· esGraduado:', esGraduado);
+
+        // Notificar a suscriptores (ej. Módulo 2 puede pre-llenar RX en cotización)
+        _emit('EXAMEN_DEPOSITADO', _state.ultimoExamen);
+    }
+
+    /**
+     * Verifica si un examen tiene graduación real (no vacía/cero).
+     */
+    function _examenEsGraduado(examen) {
+        var campos = [];
+        if (examen.od) {
+            campos.push(examen.od.esfera, examen.od.cilindro, examen.od.eje);
+        }
+        if (examen.oi) {
+            campos.push(examen.oi.esfera, examen.oi.cilindro, examen.oi.eje);
+        }
+        // También leer campos planos (formato legacy de DB demo)
+        campos.push(examen.esferaOD, examen.cilindroOD, examen.esferaOI, examen.cilindroOI);
+
+        return campos.some(function(v) {
+            return v && String(v).trim() !== '' && String(v).trim() !== '0';
+        });
+    }
+
+    /**
+     * Módulo 16 / login llama esto al establecer sesión o cambiar sucursal.
+     * @param {string} sucursalId
+     * @param {object} [usuario]
+     */
+    function _depositarSucursal(sucursalId, usuario) {
+        if (!sucursalId) {
+            console.warn('[OptivraBridge] depositarSucursal: sucursalId vacío, ignorando.');
+            return;
+        }
+        _state.sucursalActiva = sucursalId;
+        if (usuario) _state.usuarioActivo = usuario;
+
+        // Sincronizar con variable existente para compatibilidad
+        global._optiSucursalActiva = sucursalId;
+
+        console.log('[OptivraBridge] ✅ Sucursal activa →', sucursalId);
+        _emit('SUCURSAL_CAMBIADA', { sucursalId: sucursalId, usuario: usuario });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 5 — SNAPSHOT Y ROLLBACK
+    // Captura el estado antes de la transacción para poder revertir.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Captura un snapshot del estado mutable antes de la transacción.
+     * @param {object} venta
+     * @returns {object} snapshot
+     */
+    function _capturarSnapshot(venta) {
+        var DB = global.DB || {};
+
+        // Snapshot de stock de cada item vendido
+        var stockSnapshot = [];
+        (venta.items || []).forEach(function(item) {
+            var prod = (DB.productos || []).find(function(p) { return p.id === item.id; });
+            if (prod) {
+                stockSnapshot.push({ id: item.id, stock: prod.stock });
+            }
+        });
+
+        // Snapshot de movimientos de caja (copiar array)
+        var cajaSnapshot = JSON.parse(JSON.stringify(global._oc_movs || []));
+        var cajaAbiertaSnapshot = !!global._oc_abierta;
+
+        // Snapshot de ordenes length (para saber si se creó una nueva)
+        var ordenesLengthSnapshot = (DB.ordenes || []).length;
+
+        return {
+            ventaId:          venta.id,
+            stockSnapshot:    stockSnapshot,
+            cajaMovs:         cajaSnapshot,
+            cajaAbierta:      cajaAbiertaSnapshot,
+            ordenesLength:    ordenesLengthSnapshot,
+            timestamp:        new Date().toISOString()
+        };
+    }
+
+    /**
+     * Revierte los cambios aplicados durante la transacción fallida.
+     * @param {object} snapshot
+     * @param {Error} error
+     */
+    function _rollback(snapshot, error) {
+        console.error('[OptivraBridge] ⚠️ ROLLBACK iniciado por:', error.message || error);
+
+        try {
+            var DB = global.DB || {};
+
+            // 1. Revertir stock
+            (snapshot.stockSnapshot || []).forEach(function(snap) {
+                var prod = (DB.productos || []).find(function(p) { return p.id === snap.id; });
+                if (prod) {
+                    console.warn('[OptivraBridge] ROLLBACK stock →', snap.id,
+                        'de', prod.stock, 'a', snap.stock);
+                    prod.stock = snap.stock;
+                }
+            });
+
+            // 2. Revertir caja
+            if (global._oc_movs !== undefined) {
+                global._oc_movs = snapshot.cajaMovs;
+                // Persistir en localStorage
+                try {
+                    var cajaRaw = localStorage.getItem('optivra_caja_v2');
+                    if (cajaRaw) {
+                        var cajaData = JSON.parse(cajaRaw);
+                        cajaData.movs = snapshot.cajaMovs;
+                        localStorage.setItem('optivra_caja_v2', JSON.stringify(cajaData));
+                    }
+                } catch (eLS) {
+                    console.warn('[OptivraBridge] ROLLBACK caja localStorage:', eLS.message);
+                }
+            }
+
+            // 3. Revertir orden creada (si se creó una nueva durante la transacción)
+            if (DB.ordenes && DB.ordenes.length > snapshot.ordenesLength) {
+                var ordenesEliminadas = DB.ordenes.splice(snapshot.ordenesLength);
+                console.warn('[OptivraBridge] ROLLBACK órdenes eliminadas:',
+                    ordenesEliminadas.map(function(o) { return o.id; }));
+            }
+
+            // 4. Remover la venta de DB.ventas
+            if (DB.ventas && snapshot.ventaId) {
+                var idx = DB.ventas.findIndex(function(v) { return v.id === snapshot.ventaId; });
+                if (idx >= 0) {
+                    DB.ventas.splice(idx, 1);
+                    console.warn('[OptivraBridge] ROLLBACK venta removida de DB.ventas:', snapshot.ventaId);
+                }
+            }
+
+            // 5. Persistir estado revertido
+            if (typeof global.guardarDatos === 'function') {
+                try { global.guardarDatos(); } catch(e) {}
+            }
+
+            console.warn('[OptivraBridge] ✅ Rollback completado.');
+            _emit('VENTA_ROLLBACK', { ventaId: snapshot.ventaId, error: error.message });
+
+        } catch (eRollback) {
+            // Si el rollback mismo falla, loguear pero no propagar
+            console.error('[OptivraBridge] ERROR CRÍTICO en rollback:', eRollback.message);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 6 — LAS CUATRO FUNCIONES ATÓMICAS
+    // Cada una es una unidad discreta, testeable por separado.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * FUNCIÓN A — Módulo 6: Actualizar Stock
+     * El stock local ya fue descontado por confirmarProcesoVenta(). Este método
+     * valida consistencia y emite la alerta de stock mínimo si aplica.
+     * También agenda la actualización en Supabase inventario_sucursal si no
+     * fue hecha por el código existente.
+     *
+     * @param {object} venta
+     * @throws {Error} si un producto no existe en DB
+     */
+    function _actualizarStock(venta) {
+        var DB = global.DB || {};
+        var alertasStockBajo = [];
+
+        (venta.items || []).forEach(function(item) {
+            var prod = (DB.productos || []).find(function(p) { return p.id === item.id; });
+
+            if (!prod) {
+                // Producto no encontrado: no bloquear la venta, solo advertir
+                console.warn('[OptivraBridge] actualizarStock: producto no encontrado en DB.productos →', item.id);
+                return;
+            }
+
+            // El stock ya fue descontado por confirmarProcesoVenta() antes de llegar aquí.
+            // Solo validamos consistencia y alertas.
+            var stockActual = typeof prod.stock === 'number' ? prod.stock : 0;
+            var stockMinimo = typeof prod.stockMinimo === 'number' ? prod.stockMinimo : 0;
+
+            if (stockMinimo > 0 && stockActual <= stockMinimo) {
+                alertasStockBajo.push({
+                    id:           prod.id,
+                    nombre:       prod.nombre,
+                    stock:        stockActual,
+                    stockMinimo:  stockMinimo
+                });
+            }
+        });
+
+        // Emitir alertas de stock bajo (Módulo 9 Compras + Módulo 22 Notificaciones)
+        if (alertasStockBajo.length > 0) {
+            console.warn('[OptivraBridge] ⚠️ Stock bajo detectado:',
+                alertasStockBajo.map(function(p) { return p.nombre + ' (' + p.stock + '/' + p.stockMinimo + ')'; }));
+            _emit('STOCK_BAJO', { productos: alertasStockBajo, venta: venta });
+        }
+
+        console.log('[OptivraBridge] ✅ actualizarStock completado.');
+    }
+
+    /**
+     * FUNCIÓN B — Módulo 3: Registrar Flujo de Caja
+     * Inserta un movimiento de ingreso en el sistema de caja existente
+     * (_oc_movs + localStorage optivra_caja_v2) sin tocar las variables
+     * originales de ninguna otra manera.
+     *
+     * @param {object} venta
+     * @throws {Error} si no se puede escribir en caja
+     */
+    function _registrarFlujoCaja(venta) {
+        try {
+            // Verificar si la caja está abierta
+            // _oc_abierta es la variable global del módulo caja en app.html
+            var cajaAbierta = !!global._oc_abierta;
+
+            if (!cajaAbierta) {
+                // Caja no abierta: registrar de todas formas en _oc_movs pero emitir advertencia.
+                // No bloquear la venta — la apertura de caja es un proceso manual.
+                console.warn('[OptivraBridge] registrarFlujoCaja: caja no está abierta. ' +
+                    'Movimiento registrado de todas formas (pendiente de apertura formal).');
+            }
+
+            // Construir movimiento compatible con la estructura de _oc_movs
+            var movimiento = {
+                hora:       new Date(),
+                tipo:       'venta',
+                concepto:   'Venta POS · ' + venta.id,
+                metodo:     venta.metodoPago || 'efectivo',
+                monto:      venta.total || 0,
+                ventaId:    venta.id,
+                clienteNombre: venta.clienteNombre || 'Cliente General',
+                sucursalId: _getSucursalId(),
+                // Marca para distinguir movimientos auto-generados por el Bridge
+                _bridge:    true
+            };
+
+            // Insertar en _oc_movs (array global de caja)
+            if (!Array.isArray(global._oc_movs)) {
+                global._oc_movs = [];
+            }
+
+            // Guardia anti-duplicado: verificar que no exista ya un movimiento para esta venta
+            var yaExiste = global._oc_movs.some(function(m) {
+                return m.ventaId === venta.id;
+            });
+
+            if (yaExiste) {
+                console.log('[OptivraBridge] registrarFlujoCaja: movimiento ya existe para venta', venta.id, '— omitiendo.');
+                return;
+            }
+
+            global._oc_movs.push(movimiento);
+
+            // Persistir en localStorage (misma clave que usa el módulo caja)
+            try {
+                var raw = localStorage.getItem('optivra_caja_v2');
+                var cajaData = raw ? JSON.parse(raw) : { abierta: false, fondo: 0, movs: [] };
+                cajaData.movs = global._oc_movs;
+                localStorage.setItem('optivra_caja_v2', JSON.stringify(cajaData));
+            } catch (eLS) {
+                console.warn('[OptivraBridge] registrarFlujoCaja localStorage:', eLS.message);
+                // No lanzar — el movimiento ya está en memoria
+            }
+
+            // Refrescar UI de caja si está visible
+            try {
+                if (typeof global._ocActualizar === 'function') {
+                    global._ocActualizar();
+                }
+            } catch (eUI) {
+                // No bloquear si la UI no está montada
+            }
+
+            console.log('[OptivraBridge] ✅ Flujo de caja registrado →', movimiento.concepto, '$' + movimiento.monto);
+
+        } catch (e) {
+            throw new Error('[OptivraBridge] registrarFlujoCaja falló: ' + (e.message || e));
+        }
+    }
+
+    /**
+     * FUNCIÓN C — Módulo 7: Generar Orden de Trabajo si el producto es graduado
+     *
+     * REGLA DE ORO #2: Solo crea la orden si existe un examenId real en el Global State.
+     * Si falta y el producto es graduado → console.error() explícito + throw.
+     * Prohibido inventar valores.
+     *
+     * @param {object} venta
+     * @throws {Error} si venta graduada y no hay examen en Global State
+     */
+    function _generarOrdenSiEsGraduado(venta) {
+        var DB = global.DB || {};
+
+        // Determinar si la venta requiere Orden de Trabajo
+        var requiereOrden = _ventaRequiereOrden(venta);
+
+        if (!requiereOrden) {
+            console.log('[OptivraBridge] generarOrden: venta no requiere Orden de Trabajo →', venta.categoria);
+            return;
+        }
+
+        // ── Regla de Oro #2: Buscar examen en Global State ──────────────
+        var examenGS = _state.ultimoExamen;
+
+        // Fallback: buscar en DB.examenes el examen más reciente del paciente
+        if (!examenGS && venta.clienteId) {
+            var examenesDelPaciente = (DB.examenes || [])
+                .filter(function(e) { return e.pacienteId === venta.clienteId; })
+                .sort(function(a, b) { return new Date(b.fecha) - new Date(a.fecha); });
+
+            if (examenesDelPaciente.length > 0) {
+                var examenDB = examenesDelPaciente[0];
+                examenGS = {
+                    id:         examenDB.id,
+                    pacienteId: examenDB.pacienteId,
+                    od:         examenDB.od || { esfera: examenDB.esferaOD || '', cilindro: examenDB.cilindroOD || '', eje: examenDB.ejeOD || '' },
+                    oi:         examenDB.oi || { esfera: examenDB.esferaOI || '', cilindro: examenDB.cilindroOI || '', eje: examenDB.ejeOI || '' },
+                    esGraduado: _examenEsGraduado(examenDB)
+                };
+                console.log('[OptivraBridge] generarOrden: examen recuperado de DB.examenes →', examenGS.id);
+            }
+        }
+
+        // ── Sin examen: aplicar Regla de Oro #2 ─────────────────────────
+        if (!examenGS || !examenGS.id) {
+            console.error(
+                '[OptivraBridge] ❌ REGLA DE ORO #2 VIOLADA: Venta graduada sin examen en Global State.\n' +
+                '  Venta ID:  ' + venta.id + '\n' +
+                '  Categoría: ' + venta.categoria + '\n' +
+                '  Cliente:   ' + (venta.clienteId || 'sin cliente') + '\n' +
+                '  Solución:  Realice el Examen Visual (Módulo 5) antes de la venta.\n' +
+                '  Acción:    Orden de Trabajo NO creada. Venta completada sin orden.'
+            );
+            // Emitir evento para que el módulo de notificaciones avise al usuario
+            _emit('ORDEN_BLOQUEADA_SIN_EXAMEN', {
+                ventaId:   venta.id,
+                clienteId: venta.clienteId,
+                razon:     'Sin examen visual en Global State'
+            });
+            // No lanzar Error — per diseño acordado: venta no se revierte por falta de examen
+            // La orden simplemente no se crea y se notifica.
+            return;
+        }
+
+        // ── Crear Orden de Trabajo ───────────────────────────────────────
+        var fechaEntrega = new Date();
+        fechaEntrega.setDate(fechaEntrega.getDate() + 7); // 7 días hábiles estimados
+
+        var orden = {
+            id:            'ORD' + Date.now().toString(36).toUpperCase(),
+            fecha:         new Date().toISOString(),
+            fechaEntrega:  fechaEntrega.toISOString().split('T')[0],
+            // Herencia directa desde Global State (Regla #2 — sin inventar valores)
+            examenId:      examenGS.id,
+            clienteId:     venta.clienteId || '',
+            ventaId:       venta.id,
+            // Graduación heredada del examen
+            od: {
+                esfera:   examenGS.od.esfera,
+                cilindro: examenGS.od.cilindro,
+                eje:      examenGS.od.eje,
+                add:      examenGS.od.add || '',
+                dip:      examenGS.od.dip || ''
+            },
+            oi: {
+                esfera:   examenGS.oi.esfera,
+                cilindro: examenGS.oi.cilindro,
+                eje:      examenGS.oi.eje,
+                add:      examenGS.oi.add || '',
+                dip:      examenGS.oi.dip || ''
+            },
+            dipTotal:      examenGS.dipTotal || '',
+            // Tipo y material desde los items de la venta
+            tipoLente:     _inferirTipoLente(venta),
+            material:      '',
+            // Proveedor: vacío, se asignará manualmente
+            proveedor:     '',
+            proveedorId:   '',
+            // Comercial: la orden nace con costo $0 solo si es garantía
+            precioLentes:  venta.esGarantia ? 0 : 0, // Se llenará manualmente
+            precioMontura: 0,
+            total:         0,
+            anticipo:      0,
+            saldo:         0,
+            formaPago:     '',
+            // Metadatos
+            sucursalId:    _getSucursalId(),
+            estado:        'proceso',
+            prioridad:     'normal',
+            notas:         'Generada automáticamente desde venta ' + venta.id,
+            notasInternas: 'Bridge v1.0 · examenId=' + examenGS.id,
+            _auto:         true, // Marcador de orden auto-generada
+            rxValidada:    false,
+            medidasVerificadas: false,
+            garantia:      '30 días',
+            responsable:   (examenGS.optometrista || '')
+        };
+
+        // Insertar en DB.ordenes
+        if (!Array.isArray(DB.ordenes)) DB.ordenes = [];
+        DB.ordenes.push(orden);
+
+        console.log('[OptivraBridge] ✅ Orden de Trabajo generada →', orden.id,
+            '· examenId:', orden.examenId,
+            '· OD:', orden.od.esfera + '/' + orden.od.cilindro + 'x' + orden.od.eje);
+
+        // Refrescar tabla de órdenes si está visible
+        try {
+            if (typeof global.cargarTablaOrdenes === 'function') {
+                global.cargarTablaOrdenes();
+            }
+        } catch (eUI) { /* UI no montada */ }
+
+        _emit('ORDEN_CREADA', { orden: orden, venta: venta });
+        return orden;
+    }
+
+    /**
+     * Determina si la venta requiere una Orden de Trabajo.
+     * Criterio: categoría graduada O items que contienen 'lente' en nombre/categoría.
+     */
+    function _ventaRequiereOrden(venta) {
+        var categoriasGraduadas = [
+            'lentes-graduados', 'examen-lentes', 'lentes-progresivos',
+            'lentes-contacto', 'lentes-bifocales'
+        ];
+
+        var categoria = (venta.categoria || venta.tipoVenta || '').toLowerCase();
+        if (categoriasGraduadas.indexOf(categoria) >= 0) return true;
+
+        // Revisar items
+        return (venta.items || []).some(function(item) {
+            var nombre = (item.nombre || '').toLowerCase();
+            var cat = (item.categoria || '').toLowerCase();
+            return nombre.includes('lente') || cat.includes('lente') ||
+                   nombre.includes('mica') || cat.includes('mica') ||
+                   nombre.includes('progresiv') || nombre.includes('bifocal');
+        });
+    }
+
+    /**
+     * Infiere el tipo de lente desde los items de la venta.
+     */
+    function _inferirTipoLente(venta) {
+        var items = venta.items || [];
+        for (var i = 0; i < items.length; i++) {
+            var n = (items[i].nombre || '').toLowerCase();
+            if (n.includes('progresiv'))  return 'Progresivo';
+            if (n.includes('bifocal'))    return 'Bifocal';
+            if (n.includes('monofocal'))  return 'Monofocal';
+            if (n.includes('contacto'))   return 'Lente de Contacto';
+        }
+        var cat = (venta.categoria || '').toLowerCase();
+        if (cat.includes('progresiv'))    return 'Progresivo';
+        if (cat.includes('contacto'))     return 'Lente de Contacto';
+        return 'Monofocal'; // Default seguro
+    }
+
+    /**
+     * FUNCIÓN D — Módulo 12: Encolar Factura (asíncrona, sin rollback)
+     *
+     * REGLA DE ORO #4: Valida RFC y CP del Módulo 4 (Expedientes) ANTES de encolar.
+     * Si faltan datos, la factura queda en estado 'pendiente_datos' pero la venta
+     * NO se revierte.
+     *
+     * @param {object} venta
+     */
+    function _prepararFactura(venta) {
+        // Solo encolar si el cliente requiere factura
+        if (!venta.requiereFactura) {
+            console.log('[OptivraBridge] prepararFactura: venta sin factura requerida → omitiendo.');
+            return;
+        }
+
+        var DB = global.DB || {};
+
+        // ── Regla de Oro #4: Buscar RFC y CP en Módulo 4 (Expedientes/Clientes) ──
+        var rfc = venta.clienteRFC || '';
+        var cp  = '';
+
+        if (venta.clienteId) {
+            var clienteDB = (DB.clientes || []).find(function(c) { return c.id === venta.clienteId; });
+            if (clienteDB) {
+                rfc = clienteDB.rfc || rfc;
+                cp  = clienteDB.codigoPostal || clienteDB.cp || '';
+            }
+        }
+
+        // Validaciones antes de consumir timbres del PAC
+        var erroresValidacion = [];
+
+        var rfcValido = rfc && /^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test(rfc.trim().toUpperCase());
+        if (!rfcValido) {
+            erroresValidacion.push('RFC inválido o ausente: "' + rfc + '"');
+        }
+
+        var cpValido = cp && /^\d{5}$/.test(cp.trim());
+        if (!cpValido) {
+            erroresValidacion.push('Código Postal inválido o ausente: "' + cp + '"');
+        }
+
+        var estadoQueue = erroresValidacion.length === 0 ? 'pendiente' : 'pendiente_datos';
+
+        var itemQueue = {
+            id:            'FCQ' + Date.now().toString(36).toUpperCase(),
+            ventaId:       venta.id,
+            clienteId:     venta.clienteId || '',
+            clienteNombre: venta.clienteNombre || '',
+            rfc:           rfc,
+            cp:            cp,
+            total:         venta.total || 0,
+            subtotal:      venta.subtotalConDescuento || venta.subtotal || 0,
+            iva:           venta.iva || 0,
+            items:         venta.items || [],
+            metodoPago:    venta.metodoPago || 'efectivo',
+            sucursalId:    _getSucursalId(),
+            fechaEncolada: new Date().toISOString(),
+            estado:        estadoQueue,
+            intentos:      0,
+            ultimoError:   erroresValidacion.length > 0 ? erroresValidacion.join('; ') : null
+        };
+
+        _state.facturaQueue.push(itemQueue);
+
+        // Persistir queue en localStorage
+        try {
+            localStorage.setItem('optivra_factura_queue', JSON.stringify(_state.facturaQueue));
+        } catch (eLS) {
+            console.warn('[OptivraBridge] prepararFactura localStorage:', eLS.message);
+        }
+
+        if (erroresValidacion.length > 0) {
+            console.warn('[OptivraBridge] ⚠️ Factura encolada con datos incompletos:',
+                erroresValidacion.join(' | '),
+                '· ID Queue:', itemQueue.id);
+            _emit('FACTURA_PENDIENTE_DATOS', { item: itemQueue, errores: erroresValidacion });
+        } else {
+            console.log('[OptivraBridge] ✅ Factura encolada →', itemQueue.id,
+                '· RFC:', rfc, '· CP:', cp);
+            _emit('FACTURA_ENCOLADA', { item: itemQueue });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 7 — ORQUESTADOR PRINCIPAL: onVentaCompletada
+    // Este es el corazón del Bridge. Es llamado por confirmarProcesoVenta()
+    // mediante la inyección quirúrgica en app.html.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Ejecuta la transacción atómica VENTA_COMPLETADA.
+     *
+     * FASES:
+     *   SYNC (con rollback): A = actualizarStock, B = registrarFlujoCaja, C = generarOrden
+     *   ASYNC (sin rollback): D = prepararFactura
+     *
+     * @param {object} venta — objeto venta ya insertado en DB.ventas
+     */
+    async function _onVentaCompletada(venta) {
+        if (!venta || !venta.id) {
+            console.error('[OptivraBridge] onVentaCompletada: venta inválida.', venta);
+            return;
+        }
+
+        // Anti-doble-disparo
+        if (_state._procesando) {
+            console.warn('[OptivraBridge] onVentaCompletada: ya hay una transacción en curso. Ignorando.');
+            return;
+        }
+        _state._procesando = true;
+
+        console.log('[OptivraBridge] 🚀 VENTA_COMPLETADA iniciada →', venta.id);
+
+        // Capturar snapshot ANTES de cualquier modificación
+        var snapshot = _capturarSnapshot(venta);
+        _state._rollbackSnapshot = snapshot;
+
+        try {
+            // ── FASE SÍNCRONA ATÓMICA ────────────────────────────────────
+            // Si cualquiera de A, B falla → rollback total.
+            // C (orden) no revierte la venta, solo emite error.
+
+            // A — Módulo 6: Stock (ya descontado, solo validar alertas)
+            _actualizarStock(venta);
+
+            // B — Módulo 3: Caja
+            _registrarFlujoCaja(venta);
+
+            // C — Módulo 7: Orden de Trabajo (no lanza error fatal)
+            _generarOrdenSiEsGraduado(venta);
+
+            // Persistir estado tras fase síncrona exitosa
+            if (typeof global.guardarDatos === 'function') {
+                try { global.guardarDatos(); } catch (eGD) {
+                    console.warn('[OptivraBridge] guardarDatos post-transacción:', eGD.message);
+                }
+            }
+
+            console.log('[OptivraBridge] ✅ Fase síncrona completada → Mód. 6 + 3 + 7');
+            _emit('VENTA_COMPLETADA', { venta: venta });
+
+        } catch (errorFaseSync) {
+            // ── ROLLBACK ─────────────────────────────────────────────────
+            _rollback(snapshot, errorFaseSync);
+            _state._procesando = false;
+
+            // Notificar al usuario
+            if (typeof global.showToast === 'function') {
+                global.showToast('❌ Error en transacción de venta. Datos revertidos. Intente nuevamente.', 'error', 6000);
+            }
+            return;
+        }
+
+        // ── FASE ASÍNCRONA (sin rollback — no bloquea la venta) ─────────
+        try {
+            _prepararFactura(venta);
+        } catch (eFactura) {
+            // Solo loguear — la factura es asíncrona y no revierte la venta
+            console.warn('[OptivraBridge] prepararFactura (no crítico):', eFactura.message);
+        }
+
+        // ── Refrescar Dashboard ──────────────────────────────────────────
+        try {
+            if (typeof global.actualizarDashboard === 'function') {
+                global.actualizarDashboard();
+            }
+        } catch (eDash) { /* No crítico */ }
+
+        _state._procesando = false;
+        console.log('[OptivraBridge] ✅✅ VENTA_COMPLETADA exitosa →', venta.id);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 8 — LISTENERS DE SISTEMA (suscriptores nativos del Bridge)
+    // El Bridge escucha sus propios eventos para conectar módulos adicionales.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Mód. 6 → Mód. 9 (Compras) + Mód. 22 (Notificaciones): Alerta stock bajo
+    _on('STOCK_BAJO', function(payload) {
+        var productos = payload.productos || [];
+        // Marcar alerta visual en dashboard si existe el elemento
+        var alertaEl = document.getElementById('dash-stock-alerta');
+        var alertaTxtEl = document.getElementById('dash-stock-alerta-txt');
+        if (alertaEl && alertaTxtEl) {
+            alertaEl.style.display = 'flex';
+            alertaTxtEl.textContent = productos.length + ' producto(s) bajo stock mínimo: ' +
+                productos.slice(0, 2).map(function(p) { return p.nombre; }).join(', ') +
+                (productos.length > 2 ? ' y ' + (productos.length - 2) + ' más' : '');
+        }
+        // Toast de advertencia
+        if (typeof global.showToast === 'function') {
+            global.showToast('⚠️ Stock bajo: ' + productos[0].nombre + ' (' + productos[0].stock + ' uds.)', 'warning', 5000);
+        }
+    }, 'Dashboard.alertaStockBajo');
+
+    // Mód. 7 bloqueado sin examen → notificar al usuario
+    _on('ORDEN_BLOQUEADA_SIN_EXAMEN', function(payload) {
+        if (typeof global.showToast === 'function') {
+            global.showToast(
+                '⚠️ Orden de Trabajo no creada: falta Examen Visual (Módulo 5). Créelo desde el expediente del paciente.',
+                'warning', 7000
+            );
+        }
+    }, 'UI.ordenBloqueadaToast');
+
+    // Factura pendiente de datos → toast con instrucción
+    _on('FACTURA_PENDIENTE_DATOS', function(payload) {
+        if (typeof global.showToast === 'function') {
+            global.showToast(
+                '📋 Factura en cola · Datos incompletos: ' + (payload.errores || []).join(', ') +
+                ' · Completa el expediente del cliente.',
+                'warning', 7000
+            );
+        }
+    }, 'UI.facturaPendienteDatos');
+
+    // Orden creada → refrescar módulo laboratorio si está activo
+    _on('ORDEN_CREADA', function(payload) {
+        // Notificar al módulo de laboratorio si tiene listener de Supabase Realtime
+        try {
+            if (typeof global._laboratorioRealtimeRefresh === 'function') {
+                global._laboratorioRealtimeRefresh(payload.orden);
+            }
+        } catch(e) { /* No crítico */ }
+    }, 'Laboratorio.onOrdenCreada');
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 9 — UTILIDADES PÚBLICAS
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Retorna el último examen del Global State (lectura solo).
+     * Los módulos pueden consultarlo sin modificar el estado.
+     */
+    function _getUltimoExamen() {
+        return _state.ultimoExamen ? Object.assign({}, _state.ultimoExamen) : null;
+    }
+
+    /**
+     * Retorna la cola de facturas pendientes.
+     */
+    function _getFacturaQueue() {
+        return _state.facturaQueue.slice();
+    }
+
+    /**
+     * Marca un item de la queue como procesado/timbrado.
+     * @param {string} queueId
+     * @param {string} estado — 'timbrada' | 'error'
+     * @param {string} [detalle]
+     */
+    function _actualizarEstadoQueue(queueId, estado, detalle) {
+        var item = _state.facturaQueue.find(function(i) { return i.id === queueId; });
+        if (!item) {
+            console.warn('[OptivraBridge] actualizarEstadoQueue: id no encontrado →', queueId);
+            return;
+        }
+        item.estado = estado;
+        item.intentos = (item.intentos || 0) + 1;
+        if (detalle) item.ultimoError = estado === 'error' ? detalle : null;
+        if (estado === 'timbrada') item.fechaTimbrado = new Date().toISOString();
+
+        try {
+            localStorage.setItem('optivra_factura_queue', JSON.stringify(_state.facturaQueue));
+        } catch(e) { /* No crítico */ }
+
+        _emit('QUEUE_ACTUALIZADA', { queueId: queueId, estado: estado });
+    }
+
+    /**
+     * Restaura la queue de facturas desde localStorage (llamar al inicio).
+     */
+    function _restaurarFacturaQueue() {
+        try {
+            var raw = localStorage.getItem('optivra_factura_queue');
+            if (raw) {
+                var queue = JSON.parse(raw);
+                // Solo restaurar los pendientes (no los ya timbrados)
+                _state.facturaQueue = (queue || []).filter(function(i) {
+                    return i.estado === 'pendiente' || i.estado === 'pendiente_datos' || i.estado === 'error';
+                });
+                if (_state.facturaQueue.length > 0) {
+                    console.log('[OptivraBridge] 📋 Queue restaurada · Pendientes:',
+                        _state.facturaQueue.length);
+                }
+            }
+        } catch (e) {
+            console.warn('[OptivraBridge] restaurarFacturaQueue:', e.message);
+        }
+    }
+
+    /**
+     * Debug: retorna una copia del estado interno.
+     * Solo disponible en consola para desarrollo.
+     */
+    function _debugState() {
+        return {
+            ultimoExamen:   _state.ultimoExamen,
+            sucursalActiva: _state.sucursalActiva,
+            usuarioActivo:  _state.usuarioActivo,
+            facturaQueue:   _state.facturaQueue.length + ' items',
+            procesando:     _state._procesando,
+            listeners:      Object.keys(_listeners).map(function(k) {
+                return k + ' (' + _listeners[k].length + ' subs)';
+            })
+        };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 10 — INICIALIZACIÓN Y AUTO-DETECCIÓN DE SESIÓN
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _init() {
+        // Restaurar queue de facturas desde localStorage
+        _restaurarFacturaQueue();
+
+        // Auto-detectar sucursal desde variables existentes
+        var sucursalDetectada = global._optiSucursalActiva || null;
+        if (!sucursalDetectada) {
+            var sd = global._sessionData || global.sessionData;
+            if (sd && sd.sucursal_id) sucursalDetectada = sd.sucursal_id;
+        }
+        if (sucursalDetectada) {
+            _state.sucursalActiva = sucursalDetectada;
+        }
+
+        // Auto-detectar último examen desde DB si existe
+        try {
+            var DB = global.DB || {};
+            if (DB.examenes && DB.examenes.length > 0) {
+                var examenes = DB.examenes.slice().sort(function(a, b) {
+                    return new Date(b.fecha) - new Date(a.fecha);
+                });
+                if (examenes[0]) {
+                    // Depositar silenciosamente sin emitir evento (es histórico, no "reciente")
+                    var ult = examenes[0];
+                    _state.ultimoExamen = {
+                        id:          ult.id,
+                        pacienteId:  ult.pacienteId,
+                        od:          ult.od || { esfera: ult.esferaOD || '', cilindro: ult.cilindroOD || '', eje: ult.ejeOD || '' },
+                        oi:          ult.oi || { esfera: ult.esferaOI || '', cilindro: ult.cilindroOI || '', eje: ult.ejeOI || '' },
+                        esGraduado:  _examenEsGraduado(ult),
+                        _historico:  true
+                    };
+                }
+            }
+        } catch (eInit) { /* No crítico */ }
+
+        console.log('%c[OptivraBridge] ✅ Inicializado correctamente · v1.0.0',
+            'color:#10b981;font-weight:700;font-size:13px;');
+        console.log('[OptivraBridge] Estado inicial:', _debugState());
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 11 — API PÚBLICA
+    // Todo lo que los módulos pueden llamar desde fuera.
+    // ═══════════════════════════════════════════════════════════════════════
+    global.OptivraBridge = {
+        __initialized: true,
+        __version:     '1.0.0',
+
+        // ── Event Bus ────────────────────────────────────────────────────
+        on:   _on,
+        emit: _emit,
+
+        // ── Depositadores (hooks para módulos existentes) ────────────────
+        depositarExamen:   _depositarExamen,
+        depositarSucursal: _depositarSucursal,
+
+        // ── Transacción principal ────────────────────────────────────────
+        onVentaCompletada: _onVentaCompletada,
+
+        // ── Middleware de Sucursal ───────────────────────────────────────
+        getSucursalId:    _getSucursalId,
+        injectSucursal:   _injectSucursal,
+        enrichConSucursal: _enrichConSucursal,
+
+        // ── Consultas de estado (read-only) ─────────────────────────────
+        getUltimoExamen:  _getUltimoExamen,
+        getFacturaQueue:  _getFacturaQueue,
+
+        // ── Control de queue de facturas ─────────────────────────────────
+        actualizarEstadoQueue: _actualizarEstadoQueue,
+
+        // ── Debug (solo consola) ─────────────────────────────────────────
+        debug: _debugState
+    };
+
+    // Ejecutar inicialización
+    _init();
+
+})(window);
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECCIÓN 12 — INSTRUCCIONES DE INYECCIÓN QUIRÚRGICA
+// Estas son las 3 líneas exactas que se deben agregar a app.html.
+// Son 100% aditivas — no modifican funciones existentes.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────
+ * INYECCIÓN 1 — En guardarExamen() · DESPUÉS de: DB.examenes.push(examen);
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ *   // Bridge: depositar examen en Global State para Módulo 7
+ *   if (window.OptivraBridge) window.OptivraBridge.depositarExamen(examen);
+ *
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * INYECCIÓN 2 — En confirmarProcesoVenta() · DESPUÉS de: guardarDatos();
+ * (buscar la línea: guardarDatos(); que está después del stock descuento)
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ *   // Bridge: transacción atómica VENTA_COMPLETADA
+ *   if (window.OptivraBridge) window.OptivraBridge.onVentaCompletada(venta);
+ *
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * INYECCIÓN 3 — En la función de inicio de sesión / carga de sesión
+ * (buscar donde se asigna window._optiSucursalActiva o _sessionData)
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ *   // Bridge: registrar sucursal activa como ley transversal
+ *   if (window.OptivraBridge && window._optiSucursalActiva) {
+ *       window.OptivraBridge.depositarSucursal(window._optiSucursalActiva);
+ *   }
+ *
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * INCLUSIÓN DEL SCRIPT — En sistema.html o app.html, ANTES del </body>
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ *   <script src="optivra-bridge.js"></script>
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * VERIFICACIÓN EN CONSOLA
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ *   window.OptivraBridge.debug()
+ *   // Debe mostrar: { ultimoExamen, sucursalActiva, facturaQueue, ... }
+ *
+ */
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SECCIÓN 13 — MÓDULO 18: GARANTÍAS
+// Conecta las resoluciones de garantía con Módulo 6 (Stock) y Módulo 3 (Caja).
+// Regla: guardarGarantia() en app.html NO modifica stock ni caja.
+// Este bloque cierra esa brecha sin tocar ninguna función existente.
+//
+// Lógica por tipo de solución:
+//
+//  reembolso        → Módulo 3: egreso por devolución de dinero
+//                   → Módulo 6: reingreso del producto devuelto al stock
+//                   → Módulo 6: merma registrada (el producto regresa dañado)
+//
+//  reemplazo-total  → Módulo 6: descuenta el producto de reemplazo (salida)
+//                   → Módulo 6: registra merma del producto defectuoso recibido
+//                   → Módulo 3: egreso $0 (costo interno, no dinero al cliente)
+//
+//  reemplazo-parcial→ Igual que reemplazo-total pero parcial
+//
+//  credito          → Módulo 3: egreso como "crédito a favor del cliente"
+//
+//  no-procede       → Módulo 6: reingresa el producto al stock (se devuelve intacto)
+//
+//  reparacion/ajuste/limpieza/regraduacion → Sin impacto en stock ni caja
+// ═══════════════════════════════════════════════════════════════════════════
+;(function(global) {
+    'use strict';
+
+    // Esperar a que OptivraBridge esté disponible
+    function _waitBridge(cb) {
+        if (global.OptivraBridge && global.OptivraBridge.__initialized) {
+            cb(global.OptivraBridge);
+        } else {
+            setTimeout(function() { _waitBridge(cb); }, 80);
+        }
+    }
+
+    _waitBridge(function(Bridge) {
+
+        /**
+         * Punto de entrada principal.
+         * Llamado desde la Inyección 4 en guardarGarantia() de app.html.
+         * @param {object} garantia — objeto garantía recién creado
+         */
+        function onGarantiaRegistrada(garantia) {
+            if (!garantia || !garantia.id) {
+                console.error('[Bridge.Garantias] garantia inválida:', garantia);
+                return;
+            }
+
+            var solucion = (garantia.solucion || '').toLowerCase();
+            var estado   = (garantia.estado   || '').toLowerCase();
+
+            console.log('[Bridge.Garantias] 🛡️ Procesando garantía →', garantia.id,
+                '· solución:', solucion, '· estado:', estado);
+
+            // Solo procesar impacto inmediato en soluciones que lo requieren
+            // y cuando el estado ya es definitivo al momento del registro.
+            // Si el estado es 'recibido' o 'en-revision', diferir al resolver.
+            var estadosDefinitivos = ['resuelto', 'aprobada', 'resuelta', 'cerrada'];
+            var esDefinitivo = estadosDefinitivos.some(function(e) {
+                return estado.includes(e);
+            });
+
+            if (!esDefinitivo) {
+                console.log('[Bridge.Garantias] Estado no definitivo (' + estado + '). ' +
+                    'Impacto en stock/caja se aplicará al resolver. Garantía registrada.');
+                // Registrar en el Bridge para procesarla cuando cambie estado
+                Bridge.emit('GARANTIA_PENDIENTE', { garantia: garantia });
+                return;
+            }
+
+            // Estado definitivo desde el registro: procesar impacto inmediato
+            _procesarImpactoGarantia(garantia);
+        }
+
+        /**
+         * Llamado cuando una garantía existente cambia a estado resuelto/aprobada.
+         * Punto de entrada para la Inyección 5 (actualización de estado).
+         * @param {string} garantiaId
+         * @param {string} nuevoEstado
+         */
+        function onGarantiaResuelta(garantiaId, nuevoEstado) {
+            var DB = global.DB || {};
+            var garantia = (DB.garantias || []).find(function(g) { return g.id === garantiaId; });
+
+            if (!garantia) {
+                console.error('[Bridge.Garantias] onGarantiaResuelta: ID no encontrado →', garantiaId);
+                return;
+            }
+
+            var estadosDefinitivos = ['resuelto', 'aprobada', 'resuelta', 'cerrada'];
+            var esDefinitivo = estadosDefinitivos.some(function(e) {
+                return (nuevoEstado || '').toLowerCase().includes(e);
+            });
+
+            if (!esDefinitivo) {
+                console.log('[Bridge.Garantias] Cambio a estado no definitivo →', nuevoEstado, '· sin impacto.');
+                return;
+            }
+
+            // Guardia anti-doble-proceso: verificar si ya fue procesada
+            if (garantia._bridgeProcesada) {
+                console.log('[Bridge.Garantias] Garantía ya fue procesada por el Bridge →', garantiaId);
+                return;
+            }
+
+            console.log('[Bridge.Garantias] 🔄 Garantía resuelta →', garantiaId, '· aplicando impacto.');
+            _procesarImpactoGarantia(garantia);
+        }
+
+        /**
+         * Núcleo: aplica el impacto en Módulo 6 y Módulo 3 según tipo de solución.
+         * @param {object} garantia
+         */
+        function _procesarImpactoGarantia(garantia) {
+            var DB = global.DB || {};
+            var solucion = (garantia.solucion || '').toLowerCase();
+
+            // ── Sucursales ────────────────────────────────────────────────
+            // sucursalGarantia: sucursal donde se recibe/procesa la garantía (Sucursal B)
+            // sucursalOrigen:   sucursal donde se hizo la venta original   (Sucursal A)
+            // Stock y caja SIEMPRE afectan sucursalGarantia (B).
+            // Ajuste de comisión del especialista usa su propia sucursalId (A), no esta.
+            var sucursalGarantia = garantia.sucursalGarantia
+                                || global._optiSucursalActiva
+                                || Bridge.getSucursalId()
+                                || 'SUC_MATRIZ';
+            var sucursalOrigen   = garantia.sucursalOrigen || sucursalGarantia;
+
+            console.log('[Bridge.Garantias] Sucursal origen (venta):', sucursalOrigen,
+                        '· Sucursal garantía (procesado):', sucursalGarantia);
+
+            // Buscar venta original para tener referencia de producto/precio
+            var ventaOriginal = (DB.ventas || []).find(function(v) {
+                return v.id === garantia.ventaId;
+            });
+
+            var productoDevueltoNombre = garantia.producto || 'Producto de garantía';
+            var productoSKU = garantia.productoSKU || '';
+            var costoReembolso = garantia.costoCliente || 0;
+
+            // Si no hay costo explícito, intentar obtenerlo de la venta original
+            if (!costoReembolso && ventaOriginal) {
+                costoReembolso = ventaOriginal.total || 0;
+            }
+
+            var resultados = [];
+
+            // ── SWITCH por tipo de solución ──────────────────────────────
+            if (solucion === 'reembolso') {
+                // 1. Reingreso del producto devuelto al stock de Sucursal B
+                var reingresado = _reingresarStockPorSKU(productoSKU, productoDevueltoNombre, 1, garantia.id, sucursalGarantia);
+                if (reingresado) resultados.push('Stock +1 · ' + productoDevueltoNombre + ' · suc:' + sucursalGarantia);
+
+                // 2. Merma: el producto regresa dañado → registrar en Sucursal B
+                _registrarMerma(productoSKU, productoDevueltoNombre, 1, garantia.id, sucursalGarantia);
+                resultados.push('Merma registrada · ' + productoDevueltoNombre);
+
+                // 3. Egreso de caja de Sucursal B
+                if (costoReembolso > 0) {
+                    _registrarEgresoCaja(
+                        'Reembolso · Garantía ' + garantia.id,
+                        costoReembolso,
+                        garantia.metodoContacto || 'efectivo',
+                        garantia.id,
+                        'reembolso',
+                        sucursalGarantia
+                    );
+                    resultados.push('Egreso caja -$' + costoReembolso.toFixed(2) + ' · suc:' + sucursalGarantia);
+                }
+
+                // 4. Nota de Crédito fiscal (Módulo 12) — encolar si la venta original tenía factura
+                //    GUARDIÁN: solo si no existe ya una NC para esta garantía en la queue
+                var ncExistente = (_state.facturaQueue || []).find(function(q) {
+                    return q._garantiaId === garantia.id && q.tipo === 'nota_credito';
+                });
+                if (!ncExistente) {
+                    var ventaConFactura = ventaOriginal && ventaOriginal.requiereFactura;
+                    var clienteRFC = '';
+                    var clienteCP  = '';
+                    if (ventaOriginal && ventaOriginal.clienteId) {
+                        var cli = (DB.clientes || []).find(function(c) { return c.id === ventaOriginal.clienteId; });
+                        if (cli) { clienteRFC = cli.rfc || ''; clienteCP = cli.codigoPostal || cli.cp || ''; }
+                    }
+                    var itemNC = {
+                        id:            'NCQ' + Date.now().toString(36).toUpperCase(),
+                        tipo:          'nota_credito',
+                        ventaId:       ventaOriginal ? ventaOriginal.id : '',
+                        garantiaId:    garantia.id,
+                        _garantiaId:   garantia.id,
+                        clienteId:     ventaOriginal ? (ventaOriginal.clienteId || '') : '',
+                        clienteNombre: garantia.cliente || (ventaOriginal ? ventaOriginal.clienteNombre : '') || '',
+                        rfc:           clienteRFC,
+                        cp:            clienteCP,
+                        total:         costoReembolso,
+                        motivo:        'DEVOLUCIÓN POR GARANTÍA · ' + garantia.id + ' · ' + (garantia.motivo || ''),
+                        metodoPago:    garantia.metodoContacto || 'efectivo',
+                        sucursalId:    _getSucursalId(),
+                        fechaEncolada: new Date().toISOString(),
+                        // Estado según si la venta tenía factura y RFC válido
+                        estado: (ventaConFactura && clienteRFC) ? 'pendiente' : 'sin_factura_original',
+                        intentos:  0,
+                        ultimoError: ventaConFactura ? null :
+                                     'Venta original sin factura requerida — solo registro interno'
+                    };
+                    if (!Array.isArray(_state.facturaQueue)) _state.facturaQueue = [];
+                    _state.facturaQueue.push(itemNC);
+                    try {
+                        localStorage.setItem('optivra_factura_queue', JSON.stringify(_state.facturaQueue));
+                    } catch(eLS) { /* No crítico */ }
+                    var estadoNC = ventaConFactura ? 'pendiente de timbrar' : 'sin factura original (solo registro)';
+                    resultados.push('Nota de Crédito encolada · Módulo 12 · ' + estadoNC);
+                    Bridge.emit('NOTA_CREDITO_ENCOLADA', { item: itemNC, garantia: garantia });
+                    console.log('[Bridge.Garantias] 📄 Nota de Crédito encolada →', itemNC.id,
+                        '· estado:', itemNC.estado);
+                } else {
+                    console.log('[Bridge.Garantias] Nota de Crédito ya existe en queue →', ncExistente.id);
+                }
+
+            } else if (solucion === 'reemplazo-total' || solucion === 'reemplazo-parcial') {
+                // 1. Descuento del producto de reemplazo entregado al cliente
+                var skuReemplazo = garantia.productoReemplazo || productoSKU;
+                var nombreReemplazo = garantia.productoReemplazo || productoDevueltoNombre;
+                var descontado = _descontarStockPorSKU(skuReemplazo, nombreReemplazo, 1, garantia.id, sucursalGarantia);
+                if (descontado) resultados.push('Stock -1 reemplazo · ' + nombreReemplazo + ' · suc:' + sucursalGarantia);
+
+                // 2. Merma del producto defectuoso recibido en Sucursal B
+                _registrarMerma(productoSKU, productoDevueltoNombre, 1, garantia.id, sucursalGarantia);
+                resultados.push('Merma registrada · ' + productoDevueltoNombre);
+
+                // 3. En caja de Sucursal B: registrar costo si tiene costo para el cliente
+                if (garantia.costoCliente > 0) {
+                    _registrarEgresoCaja(
+                        'Reemplazo · Garantía ' + garantia.id,
+                        garantia.costoCliente,
+                        'interno',
+                        garantia.id,
+                        'reemplazo',
+                        sucursalGarantia
+                    );
+                    resultados.push('Egreso caja -$' + garantia.costoCliente.toFixed(2) + ' · suc:' + sucursalGarantia);
+                }
+
+                // 4. OT — se asigna a Sucursal B (donde se recibe para reemplazo)
+                var otExistente = (DB.ordenes || []).find(function(o) {
+                    return o._garantiaId === garantia.id;
+                });
+                if (!otExistente) {
+                    var examenRef = null;
+                    if (ventaOriginal && ventaOriginal.examenId) {
+                        examenRef = (DB.examenes || []).find(function(ex) {
+                            return ex.id === ventaOriginal.examenId;
+                        });
+                    }
+                    var otReemplazo = {
+                        id: 'OT-GAR-' + garantia.id,
+                        fecha: new Date().toISOString(),
+                        clienteId:  ventaOriginal ? (ventaOriginal.clienteId || '') : '',
+                        examenId:   examenRef ? examenRef.id : '',
+                        fechaRecepcion: new Date().toISOString().split('T')[0],
+                        fechaEntrega:   garantia.fechaCompromiso || '',
+                        prioridad:      garantia.prioridad || 'normal',
+                        tipoLente:      garantia.categoria || 'lentes-graduados',
+                        material:       '',
+                        od: examenRef ? {
+                            esfera:   examenRef.esferaOD   || '',
+                            cilindro: examenRef.cilindroOD || '',
+                            eje:      examenRef.ejeOD      || '',
+                            add:      examenRef.adicion    || '',
+                            dip: '', altura: ''
+                        } : { esfera:'', cilindro:'', eje:'', add:'', dip:'', altura:'' },
+                        oi: examenRef ? {
+                            esfera:   examenRef.esferaOI   || '',
+                            cilindro: examenRef.cilindroOI || '',
+                            eje:      examenRef.ejeOI      || '',
+                            add:      examenRef.adicion    || '',
+                            dip: '', altura: ''\
+                        } : { esfera:'', cilindro:'', eje:'', add:'', dip:'', altura:'' },
+                        dipTotal: '', decentracion: '',
+                        tratamientos: { antireflejante:false, transition:false, antirayones:false,
+                                        hidrofobico:false, uv:false, luzAzul:false, polarizado:false,
+                                        espejo:false, tinteColor:'', tratamientoEspecial:'',
+                                        antireflejanteTipo:'', transitionTipo:'' },
+                        montura: { tipo:'', material:'', marca:'', color:'', tamano:'',
+                                   calibre:'', puente:'', varilla:'', formaAro:'', esDelCliente:false },
+                        proveedor: '',
+                        proveedorId: '',
+                        precioLentes:  0,
+                        precioMontura: 0,
+                        total:         0,
+                        anticipo:      0,
+                        saldo:         0,
+                        formaPago:     'garantia',
+                        instrucciones: 'REEMPLAZO POR GARANTÍA · ' + garantia.id +
+                                       '\nProducto original: ' + productoDevueltoNombre +
+                                       '\nMotivo: ' + (garantia.motivo || '') +
+                                       '\nSuc. origen: ' + sucursalOrigen +
+                                       '\nSuc. garantía: ' + sucursalGarantia +
+                                       '\n' + (garantia.descripcion || ''),
+                        notasInternas: 'Bridge · Garantía ' + garantia.id +
+                                       ' · Venta en ' + sucursalOrigen +
+                                       ' · Procesado en ' + sucursalGarantia,
+                        notasCliente:  '',
+                        rxValidada:    false,
+                        medidasVerificadas: false,
+                        garantia:      '30 días',
+                        responsable:   garantia.responsable || '',
+                        sucursalId:    sucursalGarantia,
+                        estado:        'proceso',
+                        _garantiaId:   garantia.id,
+                        _sucursalOrigen: sucursalOrigen,
+                        _auto:         true
+                    };
+                    if (!Array.isArray(DB.ordenes)) DB.ordenes = [];
+                    DB.ordenes.push(otReemplazo);
+                    resultados.push('OT creada · ' + otReemplazo.id + ' · costo $0 · suc:' + sucursalGarantia);
+                    try {
+                        if (typeof global.cargarTablaOrdenes === 'function') global.cargarTablaOrdenes();
+                    } catch(eUI) { /* UI no montada */ }
+                    Bridge.emit('ORDEN_GARANTIA_CREADA', { orden: otReemplazo, garantia: garantia });
+                    console.log('[Bridge.Garantias] 🔧 OT de reemplazo →', otReemplazo.id,
+                        '· suc:', sucursalGarantia);
+                } else {
+                    console.log('[Bridge.Garantias] OT ya existe →', otExistente.id + '. Sin duplicar.');
+                }
+
+            } else if (solucion === 'credito') {
+                var montoCredito = garantia.costoCliente || (ventaOriginal ? ventaOriginal.total : 0);
+                if (montoCredito > 0) {
+                    _registrarEgresoCaja(
+                        'Crédito a favor · Garantía ' + garantia.id + ' · ' + (garantia.cliente || ''),
+                        montoCredito,
+                        'credito',
+                        garantia.id,
+                        'credito',
+                        sucursalGarantia
+                    );
+                    resultados.push('Crédito a favor -$' + montoCredito.toFixed(2) + ' · suc:' + sucursalGarantia);
+                }
+
+            } else if (solucion === 'no-procede') {
+                var reingresadoNP = _reingresarStockPorSKU(productoSKU, productoDevueltoNombre, 1, garantia.id, sucursalGarantia);
+                if (reingresadoNP) resultados.push('Stock +1 (no procede) · ' + productoDevueltoNombre + ' · suc:' + sucursalGarantia);
+
+            } else {
+                // reparacion, ajuste, limpieza, regraduacion → sin impacto en stock/caja
+                console.log('[Bridge.Garantias] Solución "' + solucion + '" sin impacto en stock/caja.');
+                resultados.push('Sin impacto (solución: ' + solucion + ')');
+            }
+
+            // Marcar garantía como procesada para evitar doble-proceso
+            garantia._bridgeProcesada = true;
+            garantia._bridgeResultados = resultados;
+
+            // Persistir cambios
+            if (typeof global.guardarDatos === 'function') {
+                try { global.guardarDatos(); } catch(e) {}
+            }
+
+            // Refrescar UI de caja si está activa
+            try {
+                if (typeof global._ocActualizar === 'function') global._ocActualizar();
+            } catch(e) {}
+
+            // Refrescar UI de inventario si está activa
+            try {
+                if (typeof global.cargarTablaInventario === 'function') global.cargarTablaInventario();
+            } catch(e) {}
+
+            console.log('[Bridge.Garantias] ✅ Impacto aplicado →',
+                resultados.length > 0 ? resultados.join(' | ') : 'Sin cambios');
+
+            Bridge.emit('GARANTIA_PROCESADA', {
+                garantiaId: garantia.id,
+                solucion:   solucion,
+                resultados: resultados
+            });
+
+            // Toast resumen
+            if (resultados.length > 0 && typeof global.showToast === 'function') {
+                global.showToast(
+                    '🛡️ Garantía procesada · ' + resultados.join(' · '),
+                    'success', 6000
+                );
+            }
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // HELPERS INTERNOS
+        // ─────────────────────────────────────────────────────────────────
+
+        /**
+         * Reingresa +cantidad al stock del producto identificado por SKU o nombre.
+         * Busca primero por productoSKU, luego por nombre parcial.
+         */
+        function _reingresarStockPorSKU(sku, nombre, cantidad, refId, sucursalId) {
+            var DB = global.DB || {};
+            var prod = _buscarProducto(sku, nombre, DB);
+
+            if (!prod) {
+                console.warn('[Bridge.Garantias] Reingreso: producto no encontrado en DB.productos →',
+                    'SKU:', sku, '| nombre:', nombre);
+                Bridge.emit('GARANTIA_PRODUCTO_NO_ENCONTRADO', {
+                    sku: sku, nombre: nombre, refId: refId, accion: 'reingreso'
+                });
+                return false;
+            }
+
+            var stockAntes = prod.stock || 0;
+            prod.stock = stockAntes + cantidad;
+
+            // Registrar en Supabase inventario_sucursal de la sucursal que recibe la devolución
+            var sucId = sucursalId || Bridge.getSucursalId();
+            _upsertStockSucursal(prod.id, sucId, cantidad, 'entrada', refId, 'devolucion_garantia');
+
+            console.log('[Bridge.Garantias] Stock reingresado →', prod.nombre,
+                stockAntes, '→', prod.stock, '· sucursal:', sucId, '(ref:', refId + ')');
+            return true;
+        }
+
+        /**
+         * Descuenta -cantidad del stock del producto de reemplazo.
+         */
+        function _descontarStockPorSKU(sku, nombre, cantidad, refId, sucursalId) {
+            var DB = global.DB || {};
+            var prod = _buscarProducto(sku, nombre, DB);
+
+            if (!prod) {
+                console.warn('[Bridge.Garantias] Descuento: producto no encontrado →',
+                    'SKU:', sku, '| nombre:', nombre);
+                Bridge.emit('GARANTIA_PRODUCTO_NO_ENCONTRADO', {
+                    sku: sku, nombre: nombre, refId: refId, accion: 'descuento'
+                });
+                return false;
+            }
+
+            var stockAntes = prod.stock || 0;
+            prod.stock = Math.max(0, stockAntes - cantidad);
+
+            var sucId = sucursalId || Bridge.getSucursalId();
+            _upsertStockSucursal(prod.id, sucId, -cantidad, 'salida', refId, 'reemplazo_garantia');
+
+            if (prod.stockMinimo && prod.stock <= prod.stockMinimo) {
+                Bridge.emit('STOCK_BAJO', {
+                    productos: [{ id: prod.id, nombre: prod.nombre, stock: prod.stock, stockMinimo: prod.stockMinimo }],
+                    origen: 'garantia'
+                });
+            }
+
+            console.log('[Bridge.Garantias] Stock descontado →', prod.nombre,
+                stockAntes, '→', prod.stock, '· sucursal:', sucId, '(ref:', refId + ')');
+            return true;
+        }
+
+        /**
+         * Registra la merma en DB.mermas. sucursalId = sucursal que recibe el producto dañado.
+         */
+        function _registrarMerma(sku, nombre, cantidad, refId, sucursalId) {
+            var DB = global.DB || {};
+            if (!Array.isArray(DB.mermas)) DB.mermas = [];
+
+            var sucId = sucursalId || Bridge.getSucursalId();
+            var merma = {
+                id:          'MRM' + Date.now().toString(36).toUpperCase(),
+                fecha:       new Date().toISOString(),
+                productoSKU: sku,
+                producto:    nombre,
+                cantidad:    cantidad,
+                motivo:      'Producto defectuoso recibido por garantía',
+                referencia:  refId,
+                tipo:        'garantia',
+                sucursalId:  sucId
+            };
+
+            DB.mermas.push(merma);
+            _upsertStockSucursal(sku, sucId, -cantidad, 'merma', refId, 'merma_garantia');
+            console.log('[Bridge.Garantias] Merma registrada →', merma.id, '·', nombre, '· suc:', sucId);
+        }
+
+        /**
+         * Registra un egreso en el módulo de caja (_oc_movs).
+         */
+        function _registrarEgresoCaja(concepto, monto, metodo, refId, tipoEgreso, sucursalId) {
+            if (!Array.isArray(global._oc_movs)) global._oc_movs = [];
+
+            var yaExiste = global._oc_movs.some(function(m) {
+                return m._garantiaRef === refId && m._tipoEgreso === tipoEgreso;
+            });
+            if (yaExiste) {
+                console.log('[Bridge.Garantias] Egreso ya existe para garantía', refId, '— omitiendo.');
+                return;
+            }
+
+            var sucId = sucursalId || Bridge.getSucursalId();
+            var movimiento = {
+                hora:          new Date(),
+                tipo:          'retiro',
+                concepto:      concepto,
+                metodo:        metodo || 'efectivo',
+                monto:         -Math.abs(monto),
+                _garantiaRef:  refId,
+                _tipoEgreso:   tipoEgreso,
+                sucursalId:    sucId,   // caja de la sucursal que procesa la garantía
+                _bridge:       true
+            };
+
+            global._oc_movs.push(movimiento);
+
+            try {
+                // La clave de caja incluye sucursalId para separar cajas por sucursal
+                var cajaKey = 'optivra_caja_v2_' + sucId;
+                var raw = localStorage.getItem(cajaKey)
+                       || localStorage.getItem('optivra_caja_v2'); // fallback legacy
+                var cajaData = raw ? JSON.parse(raw) : { abierta: false, fondo: 0, movs: [] };
+                if (!Array.isArray(cajaData.movs)) cajaData.movs = [];
+                cajaData.movs.push(movimiento);
+                localStorage.setItem(cajaKey, JSON.stringify(cajaData));
+            } catch(eLS) {
+                console.warn('[Bridge.Garantias] Egreso caja localStorage:', eLS.message);
+            }
+
+            console.log('[Bridge.Garantias] Egreso caja →', concepto,
+                '-$' + Math.abs(monto).toFixed(2), '· suc:', sucId);
+        }
+
+        /**
+         * Escribe un movimiento de stock en Supabase inventario_sucursal + movimientos_stock.
+         * Fire-and-forget: no bloquea el flujo síncrono. Usa la sucursal explícita recibida,
+         * NUNCA _getSucursalId(), para garantizar que el movimiento va a la sucursal correcta.
+         *
+         * @param {string} productoId  — id del producto en DB.productos
+         * @param {string} sucId       — sucursal donde ocurre el movimiento
+         * @param {number} delta       — positivo = entrada, negativo = salida
+         * @param {string} tipo        — 'entrada' | 'salida' | 'merma'
+         * @param {string} referencia  — garantiaId u otro ref
+         * @param {string} notas       — descripción del movimiento
+         */
+        function _upsertStockSucursal(productoId, sucId, delta, tipo, referencia, notas) {
+            // Buscar el id real del producto si recibimos un SKU/nombre
+            var DB      = global.DB || {};
+            var prod    = (DB.productos || []).find(function(p) {
+                return p.id === productoId || p.sku === productoId || p.codigo === productoId;
+            });
+            var prodId  = prod ? prod.id : productoId;
+
+            (async function() {
+                try {
+                    var sb    = global.supabaseClient || global.supabase;
+                    var sd    = global._sessionData  || global.sessionData;
+                    var empId = sd && sd.empresa && sd.empresa.id;
+                    if (!sb || !empId || !sucId || !prodId) return;
+
+                    // Leer stock actual en esa sucursal
+                    var _r = await sb
+                        .from('inventario_sucursal')
+                        .select('stock')
+                        .eq('empresa_id', empId)
+                        .eq('sucursal_id', sucId)
+                        .eq('producto_id', prodId)
+                        .maybeSingle();
+
+                    var stockActual = (_r.data && _r.data.stock != null)
+                        ? _r.data.stock
+                        : (prod ? (prod.stock || 0) : 0);
+
+                    var stockNuevo = Math.max(0, stockActual + delta);
+
+                    await sb.from('inventario_sucursal').upsert({
+                        empresa_id:  empId,
+                        sucursal_id: sucId,
+                        producto_id: prodId,
+                        stock:       stockNuevo,
+                        updated_at:  new Date().toISOString()
+                    }, { onConflict: 'sucursal_id,producto_id' });
+
+                    // Kardex
+                    await sb.from('movimientos_stock').insert({
+                        empresa_id:  empId,
+                        sucursal_id: sucId,
+                        producto_id: prodId,
+                        tipo:        tipo,
+                        cantidad:    Math.abs(delta),
+                        referencia:  referencia || '',
+                        notas:       notas || ''
+                    });
+
+                    console.log('[Bridge.Stock] upsert OK →', prodId, '· suc:', sucId,
+                        '· delta:', delta, '· nuevo stock:', stockNuevo);
+                } catch(e) {
+                    console.warn('[Bridge.Stock] _upsertStockSucursal error:', e.message || e);
+                }
+            })();
+        }
+
+        /**
+         * Busca un producto en DB.productos por SKU exacto, luego por nombre parcial.
+         */
+        function _buscarProducto(sku, nombre, DB) {
+            var productos = DB.productos || [];
+
+            // 1. Por SKU exacto
+            if (sku) {
+                var porSKU = productos.find(function(p) {
+                    return (p.id === sku) ||
+                           (p.sku && p.sku.toLowerCase() === sku.toLowerCase()) ||
+                           (p.codigo && p.codigo.toLowerCase() === sku.toLowerCase());
+                });
+                if (porSKU) return porSKU;
+            }
+
+            // 2. Por nombre parcial (case-insensitive)
+            if (nombre) {
+                var nombreNorm = nombre.toLowerCase().trim();
+                var porNombre = productos.find(function(p) {
+                    return p.nombre && p.nombre.toLowerCase().includes(nombreNorm);
+                });
+                if (porNombre) return porNombre;
+            }
+
+            return null;
+        }
+
+        // Registrar suscriptor para productos no encontrados → alerta visual
+        Bridge.on('GARANTIA_PRODUCTO_NO_ENCONTRADO', function(payload) {
+            if (typeof global.showToast === 'function') {
+                global.showToast(
+                    '⚠️ Producto de garantía no encontrado en inventario: "' + payload.nombre +
+                    '". Ajuste el stock manualmente en Módulo 6.',
+                    'warning', 8000
+                );
+            }
+        }, 'UI.garantiaProductoNoEncontrado');
+
+        // Registrar suscriptor para garantías pendientes de resolución
+        Bridge.on('GARANTIA_PENDIENTE', function(payload) {
+            console.log('[Bridge.Garantias] Garantía en espera de resolución →',
+                payload.garantia.id, '· se procesará al cambiar estado a resuelto.');
+        }, 'Bridge.garantiaPendienteLog');
+
+        // ── Exponer en la API pública del Bridge ──────────────────────────
+        Bridge.onGarantiaRegistrada = onGarantiaRegistrada;
+        Bridge.onGarantiaResuelta   = onGarantiaResuelta;
+
+        console.log('[Bridge.Garantias] ✅ Módulo 18 conectado → Módulos 6 y 3');
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIÓN 14 — Módulo 18 → Módulo 19 (Especialistas) + Módulo 21 (RH)
+    // Error clínico en garantía → registro en perfil + descuento de comisión
+    // ═══════════════════════════════════════════════════════════════════════
+    Bridge.on('GARANTIA_PROCESADA', function(payload) {
+
+        var DB       = global.DB || {};
+        var garantia = (DB.garantias || []).find(function(g) { return g.id === payload.garantiaId; });
+        if (!garantia) return;
+
+        // Motivos que implican error clínico del especialista
+        var MOTIVOS_CLINICOS = [
+            'graduacion-incorrecta', 'vision-borrosa', 'distorsion', 'centrado-incorrecto'
+        ];
+
+        var esClinico = MOTIVOS_CLINICOS.indexOf((garantia.motivo || '').toLowerCase()) >= 0;
+        if (!esClinico) return; // No hay implicación clínica — no hacer nada
+
+        var espRef = (garantia.especialistaRef || '').trim(); // 'ESP::id' | 'EMP::id' | ''
+        if (!espRef) {
+            // Sin especialista vinculado — solo emitir advertencia
+            console.warn('[Bridge.Mod19] Garantía con motivo clínico sin especialista vinculado →', garantia.id);
+            Bridge.emit('GARANTIA_CLINICA_SIN_ESPECIALISTA', { garantiaId: garantia.id, motivo: garantia.motivo });
+            if (typeof global.showToast === 'function') {
+                global.showToast(
+                    '⚠️ Garantía ' + garantia.id + ' tiene motivo clínico (' + garantia.motivo +
+                    ') pero no tiene especialista vinculado. Asígnalo manualmente en Módulo 19.',
+                    'warning', 9000
+                );
+            }
+            return;
+        }
+
+        var partes   = espRef.split('::');
+        var tipoRef  = partes[0]; // 'ESP' | 'EMP'
+        var refId    = partes[1];
+        var nombreEsp = '';
+
+        // ── 1. Registrar incidencia clínica en Módulo 19 (DB.especialistas) ─
+        if (tipoRef === 'ESP') {
+            var esp = (DB.especialistas || []).find(function(e) { return e.id === refId; });
+            if (esp) {
+                nombreEsp = esp.nombre || refId;
+                if (!Array.isArray(esp.incidencias)) esp.incidencias = [];
+                esp.incidencias.push({
+                    id:          'INC' + Date.now().toString(36).toUpperCase(),
+                    tipo:        'error_clinico',
+                    garantiaId:  garantia.id,
+                    motivo:      garantia.motivo,
+                    descripcion: garantia.descripcion || '',
+                    fecha:       new Date().toISOString(),
+                    solucion:    garantia.solucion || '',
+                    impacto:     payload.resultados ? payload.resultados.join(' | ') : ''
+                });
+                // Contador rápido de errores
+                esp.totalErroresClinicos = (esp.totalErroresClinicos || 0) + 1;
+                console.log('[Bridge.Mod19] Incidencia clínica registrada en especialista →',
+                    esp.nombre, '· total:', esp.totalErroresClinicos);
+            }
+        }
+
+        // ── 2. Descuento de comisión en Módulo 21 (DB.rh_empleados / rh_recibos) ─
+        //    Buscar empleado por referencia directa (EMP::id) o por nombre (ESP::id)
+        var emp = null;
+        if (tipoRef === 'EMP') {
+            emp = (DB.rh_empleados || []).find(function(e) { return e.id === refId; });
+        } else if (tipoRef === 'ESP' && nombreEsp) {
+            // Intentar match por nombre normalizado
+            var nombreNorm = nombreEsp.trim().toLowerCase();
+            emp = (DB.rh_empleados || []).find(function(e) {
+                return (e.nombre || '').trim().toLowerCase() === nombreNorm;
+            });
+        }
+
+        if (!emp) {
+            console.log('[Bridge.Mod21] Especialista sin registro en RH → sin descuento de nómina.');
+            // Registrar advertencia pero no bloquear
+            Bridge.emit('GARANTIA_CLINICA_SIN_EMPLEADO_RH', {
+                garantiaId: garantia.id,
+                espRef:     espRef,
+                motivo:     'Especialista no encontrado en DB.rh_empleados'
+            });
+        } else {
+            nombreEsp = nombreEsp || emp.nombre || refId;
+
+            // Buscar venta original para calcular el monto de comisión a descontar
+            var ventaOriginal = (DB.ventas || []).find(function(v) { return v.id === garantia.ventaId; });
+            var montoVenta    = ventaOriginal ? (ventaOriginal.total || 0) : 0;
+
+            // Descuento = 100% de la comisión de esa venta o bien $0 si no hay registro previo.
+            // Buscamos en rh_recibos si existe comisión ya pagada vinculada a esta venta.
+            // Como los recibos no vinculan ventaId directamente, registramos un ajuste
+            // negativo en DB.rh_ajustes (array de correcciones a nómina futura).
+            if (!Array.isArray(DB.rh_ajustes)) DB.rh_ajustes = [];
+
+            // Guardián: no duplicar si ya existe ajuste para esta garantía
+            var ajusteExistente = DB.rh_ajustes.find(function(a) { return a.garantiaId === garantia.id; });
+            if (!ajusteExistente) {
+                var ajuste = {
+                    id:           'AJU' + Date.now().toString(36).toUpperCase(),
+                    empleadoId:   emp.id,
+                    empleadoNombre: emp.nombre || '',
+                    tipo:         'descuento_comision_garantia',
+                    garantiaId:   garantia.id,
+                    ventaId:      garantia.ventaId || '',
+                    monto:        montoVenta,   // El módulo de nómina usa esto como base de cálculo
+                    descripcion:  'Descuento por error clínico · Garantía ' + garantia.id +
+                                  ' · Motivo: ' + garantia.motivo,
+                    fecha:        new Date().toISOString(),
+                    aplicado:     false   // Se marcará true cuando se genere la nómina del período
+                };
+                DB.rh_ajustes.push(ajuste);
+
+                // Marcar también en el perfil del empleado
+                if (!Array.isArray(emp.ajustesPendientes)) emp.ajustesPendientes = [];
+                emp.ajustesPendientes.push(ajuste.id);
+
+                console.log('[Bridge.Mod21] Ajuste de nómina registrado →', ajuste.id,
+                    '· empleado:', emp.nombre, '· venta base: $' + montoVenta.toFixed(2));
+
+                Bridge.emit('AJUSTE_NOMINA_REGISTRADO', { ajuste: ajuste, garantia: garantia });
+
+                if (typeof global.showToast === 'function') {
+                    global.showToast(
+                        '⚕️ Error clínico registrado · ' + nombreEsp +
+                        ' · Descuento pendiente en próxima nómina (Módulo 21)',
+                        'warning', 8000
+                    );
+                }
+            } else {
+                console.log('[Bridge.Mod21] Ajuste ya existe para garantía →', garantia.id);
+            }
+
+            // Persistir
+            if (typeof global.guardarDatos === 'function') {
+                try { global.guardarDatos(); } catch(e) {}
+            }
+        }
+
+    }, 'Bridge.Mod19Mod21.errorClinico');
+
+})(window);

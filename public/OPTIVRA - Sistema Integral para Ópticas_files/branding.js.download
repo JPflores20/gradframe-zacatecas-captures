@@ -1,0 +1,64 @@
+/**
+ * ============================================================
+ * OPTIVRA — Central Branding Configuration
+ * ============================================================
+ * Archivo central de marca. Modificar SOLO aquí para futuros
+ * cambios de nombre, versión o datos de contacto.
+ * ============================================================
+ */
+
+const OPTIVRA_BRAND = {
+  // Nombre principal de la marca
+  name: "OPTIVRA",
+  nameShort: "OPTIVRA",
+  nameLower: "optivra",
+
+  // Versión del sistema
+  version: "1.4.3",
+  versionLabel: "v1.4.3",
+
+  // Descripción
+  tagline: "Software para Ópticas",
+  description: "Sistema de gestión integral para ópticas",
+
+  // Meta / SEO
+  metaTitle: "OPTIVRA — Software para Ópticas",
+  metaDescription: "Software para ópticas — OPTIVRA",
+  metaKeywords: "software para ópticas, OPTIVRA, sistema óptica, gestión óptica",
+
+  // Contacto y soporte
+  supportEmail: "soporte@optivra.com",
+  internalEmailDomain: "@optivra.internal",
+
+  // localStorage / sessionStorage key prefix
+  storagePrefix: "optivra_",
+  storagePrefixDash: "optivra-",
+
+  // Eventos custom DOM
+  eventPrefix: "optivra:",
+
+  // URLs (actualizar según entorno)
+  baseUrl: "https://optivra.com",
+  loginUrl: "/login.html",
+  appUrl: "/app.html",
+
+  // Colores principales (para referencia)
+  primaryColor: "#6C3CE1",
+  secondaryColor: "#3B82F6",
+
+  // Footer
+  footerText: "© 2025 OPTIVRA. Todos los derechos reservados.",
+  poweredBy: "Desarrollado con ❤️ por OPTIVRA",
+};
+
+// ── Exportaciones compatibles con ESM y CommonJS ──
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = OPTIVRA_BRAND;
+}
+if (typeof window !== "undefined") {
+  window.OPTIVRA_BRAND = OPTIVRA_BRAND;
+}
+
+// Alias conveniente
+const BRAND = OPTIVRA_BRAND.name; // "OPTIVRA"
+

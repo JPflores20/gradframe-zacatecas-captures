@@ -67,7 +67,11 @@ export const create_new_registration = async (registration_data: Omit<GradframeR
       photo_package: registration_data.photo_package,
       stole_and_cap: registration_data.stole_and_cap,
       custom_stole: registration_data.custom_stole,
+      fotos_titulo: registration_data.fotos_titulo || false,
+      printed_photos: registration_data.printed_photos || false,
       frame_style: registration_data.frame_style,
+      total_cost: registration_data.total_cost || 0,
+      anticipo: registration_data.anticipo || 0,
       created_at: Timestamp.now(),
     });
 
@@ -116,6 +120,28 @@ export const update_admin_event = async (event_id: string, updated_data: Partial
     return true;
   } catch (error) {
     console.error("Error updating event:", error);
+    return false;
+  }
+};
+
+export const update_registration_admin = async (registration_id: string, updated_data: Partial<GradframeRegistration>): Promise<boolean> => {
+  try {
+    const registration_ref = doc(db, FIREBASE_COLLECTION_REGISTRATIONS, registration_id);
+    await updateDoc(registration_ref, updated_data);
+    return true;
+  } catch (error) {
+    console.error("Error updating registration:", error);
+    return false;
+  }
+};
+
+export const delete_registration_admin = async (registration_id: string): Promise<boolean> => {
+  try {
+    const registration_ref = doc(db, FIREBASE_COLLECTION_REGISTRATIONS, registration_id);
+    await deleteDoc(registration_ref);
+    return true;
+  } catch (error) {
+    console.error("Error deleting registration:", error);
     return false;
   }
 };
